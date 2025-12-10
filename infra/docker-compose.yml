@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  sl_postgres:
+    image: postgres:16
+    container_name: sl_postgres
+    env_file:
+      - ./env/postgres.env
+    ports:
+      - "5432:5432"
+    volumes:
+      - sl_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  sl_redis:
+    image: redis:7
+    container_name: sl_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  sl_postgres_data:
