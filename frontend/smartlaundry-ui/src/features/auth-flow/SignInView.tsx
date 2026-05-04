@@ -70,11 +70,13 @@ export function SignInView({ onSwitchToSignUp, onSwitchToReset, onSuccess, onAut
         window.localStorage.setItem("sl_refresh", refresh);
       }
 
-      const rawId = response.data?.user?.id ?? response.data?.user_id ?? 0;
-      const rawRole = response.data?.user?.role ?? response.data?.role ?? "user";
+      const responseUser = response.data?.user;
+      const rawId = responseUser?.id ?? response.data?.user_id ?? 0;
+      const rawRole = responseUser?.role ?? response.data?.role ?? "user";
+      const resolvedEmail = responseUser?.email ?? email;
       const user: UserInfo = {
         id: Number(rawId) || 0,
-        email,
+        email: resolvedEmail,
         role: rawRole === "admin" || rawRole === "superadmin" ? rawRole : "user"
       };
 

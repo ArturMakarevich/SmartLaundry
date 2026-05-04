@@ -142,12 +142,12 @@ export function FullscreenLoader() {
   );
 }
 
-export function InlineMachine() {
+export function InlineMachine({ size = 52 }: { size?: number }) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
   return (
     <div className="flex items-center justify-center">
-      <WashingMachine isDark={isDark} isLoading={false} progress={0} size={52} />
+      <WashingMachine isDark={isDark} isLoading={false} progress={0} size={size} />
     </div>
   );
 }

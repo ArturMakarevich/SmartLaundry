@@ -26,7 +26,6 @@ export function SignUpView({ onSwitchToSignIn, onSuccess, onAuthSuccess }: Props
   const [resendCooldown, setResendCooldown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
 
   useEffect(() => {
     if (resendCooldown <= 0) {
@@ -91,7 +90,6 @@ export function SignUpView({ onSwitchToSignIn, onSuccess, onAuthSuccess }: Props
 
   const handleRegister = async () => {
     setError(null);
-    setInfo(null);
 
     if (!validateEmail(email)) {
       setError(t("errorInvalidEmail"));
@@ -118,7 +116,6 @@ export function SignUpView({ onSwitchToSignIn, onSuccess, onAuthSuccess }: Props
       });
       setStep("code");
       setResendCooldown(15);
-      setInfo(t("infoVerificationCodeSent"));
     } catch (err: any) {
       const data = err?.response?.data;
       if (data?.suggest_login) {
@@ -159,11 +156,13 @@ export function SignUpView({ onSwitchToSignIn, onSuccess, onAuthSuccess }: Props
         window.localStorage.setItem("sl_refresh", refresh);
       }
 
-      const rawId = response.data?.user?.id ?? response.data?.user_id ?? 0;
-      const rawRole = response.data?.user?.role ?? response.data?.role ?? "user";
+      const responseUser = response.data?.user;
+      const rawId = responseUser?.id ?? response.data?.user_id ?? 0;
+      const rawRole = responseUser?.role ?? response.data?.role ?? "user";
+      const resolvedEmail = responseUser?.email ?? email;
       const user: UserInfo = {
         id: Number(rawId) || 0,
-        email,
+        email: resolvedEmail,
         role: rawRole === "admin" || rawRole === "superadmin" ? rawRole : "user"
       };
 
@@ -175,7 +174,6 @@ export function SignUpView({ onSwitchToSignIn, onSuccess, onAuthSuccess }: Props
         onAuthSuccess(user);
       }
 
-      setInfo(null);
       setStep("success");
     } catch {
       setError(t("errorCodeInvalidOrExpired"));
@@ -196,7 +194,6 @@ export function SignUpView({ onSwitchToSignIn, onSuccess, onAuthSuccess }: Props
         ui_language: lang
       });
       setResendCooldown(15);
-      setInfo(t("infoVerificationCodeResent"));
     } catch {
       setError(t("errorRegistrationGeneric"));
     } finally {
@@ -241,12 +238,6 @@ export function SignUpView({ onSwitchToSignIn, onSuccess, onAuthSuccess }: Props
         {error && (
           <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md px-3 py-2">
             {error}
-          </div>
-        )}
-
-        {info && !error && (
-          <div className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md px-3 py-2">
-            {info}
           </div>
         )}
 
@@ -299,12 +290,6 @@ export function SignUpView({ onSwitchToSignIn, onSuccess, onAuthSuccess }: Props
       {error && (
         <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md px-3 py-2">
           {error}
-        </div>
-      )}
-
-      {info && !error && (
-        <div className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md px-3 py-2">
-          {info}
         </div>
       )}
 

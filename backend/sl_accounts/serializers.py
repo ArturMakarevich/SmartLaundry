@@ -46,6 +46,7 @@ class RegisterSerializer(serializers.Serializer):
 class EmailVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     code = serializers.CharField(max_length=6)
+    user = None
 
     def validate(self, attrs):
         email = attrs["email"]
@@ -65,6 +66,7 @@ class EmailVerificationSerializer(serializers.Serializer):
             raise serializers.ValidationError({"code": "Invalid or expired code"})
         attrs["user"] = user
         attrs["verification"] = qs.first()
+        self.user = user
         return attrs
 
     def save(self, **kwargs):
@@ -78,12 +80,14 @@ class EmailVerificationSerializer(serializers.Serializer):
         return {
             "access": str(refresh.access_token),
             "refresh": str(refresh),
+            "user": UserInfoSerializer(user).data,
         }
 
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
+    user = None
 
     def validate(self, attrs):
         email = attrs.get("email")
@@ -104,6 +108,7 @@ class LoginSerializer(serializers.Serializer):
         if not user.is_active:
             raise serializers.ValidationError({"detail": "email_not_verified"})
 
+        self.user = user
         refresh = RefreshToken.for_user(user)
 
         return {

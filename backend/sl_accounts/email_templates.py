@@ -7,8 +7,6 @@ def normalize_lang(lang: str) -> str:
     lang = (lang or "").lower()
     if lang.startswith("pl"):
         return "pl"
-    if lang.startswith("ru") or lang.startswith("ru-"):
-        return "ru"
     return "en"
 
 
@@ -23,17 +21,6 @@ def verification_email(lang: str, code: str) -> VerificationTuple:
             "Wpisz ten kod w aplikacji, aby potwierdzić adres e-mail.\n"
             "Jeśli to nie Ty próbowałeś(-aś) się zarejestrować, po prostu zignoruj tę wiadomość.\n\n"
             "Zespół SmartLaundry"
-        )
-        return subject, body
-
-    if lang == "ru":
-        subject = "SmartLaundry: код подтверждения"
-        body = (
-            "Здравствуйте!\n\n"
-            f"Ваш код подтверждения SmartLaundry: {code}\n\n"
-            "Введите этот код в приложении, чтобы подтвердить адрес электронной почты.\n"
-            "Если это были не вы, просто проигнорируйте это письмо.\n\n"
-            "Команда SmartLaundry"
         )
         return subject, body
 
@@ -60,18 +47,6 @@ def reset_password_email(lang: str, code: str) -> VerificationTuple:
             "Wpisz ten kod w aplikacji, aby ustawić nowe hasło.\n"
             "Jeśli to nie Ty wysłałeś(-aś) tę prośbę, zignoruj tę wiadomość.\n\n"
             "Zespół SmartLaundry"
-        )
-        return subject, body
-
-    if lang == "ru":
-        subject = "SmartLaundry: сброс пароля"
-        body = (
-            "Здравствуйте!\n\n"
-            "Мы получили запрос на смену пароля для вашего аккаунта SmartLaundry.\n"
-            f"Ваш код для сброса пароля: {code}\n\n"
-            "Введите этот код в приложении, чтобы задать новый пароль.\n"
-            "Если вы не отправляли запрос, просто проигнорируйте это письмо.\n\n"
-            "Команда SmartLaundry"
         )
         return subject, body
 

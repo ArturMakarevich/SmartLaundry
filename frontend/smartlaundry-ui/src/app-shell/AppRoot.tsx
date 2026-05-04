@@ -4,9 +4,12 @@ import { ThemeToggle } from "../ui-kit/ThemeToggle";
 import { LanguageSelector } from "../ui-kit/LanguageSelector";
 import { AuthPortal } from "../features/auth-flow/AuthPortal";
 import { useI18n } from "./i18n-context";
+import { LandingDescription } from "./LandingDescription";
 import { useTheme } from "./theme-context";
 import { AccountMenu } from "../features/account/AccountMenu";
 import { UserInfo, UserRole } from "../shared/auth-types";
+import { UserTerritoryView } from "../features/territories/UserTerritoryView";
+import { apiClient } from "../shared/apiClient";
 
 type AuthMode = "signin" | "signup" | "reset";
 
@@ -16,6 +19,7 @@ export function AppRoot() {
   const [authMode, setAuthMode] = useState<AuthMode>("signin");
   const [resetEmail, setResetEmail] = useState<string | undefined>(undefined);
   const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
+  const [currentTerritoryId, setCurrentTerritoryId] = useState<number | null>(null);
   const { t } = useI18n();
   const { theme } = useTheme();
 
@@ -38,6 +42,36 @@ export function AppRoot() {
       };
       setCurrentUser(user);
     }
+  }, []);
+
+  useEffect(() => {
+    const access = window.localStorage.getItem("sl_access");
+    if (!access) return;
+    apiClient
+      .get("accounts/me/")
+      .then(response => {
+        const data = response.data as UserInfo;
+        if (!data?.email) return;
+        const role: UserRole =
+          data.role === "admin" || data.role === "superadmin" ? data.role : "user";
+        const user: UserInfo = {
+          id: Number(data.id) || 0,
+          email: data.email,
+          role
+        };
+        setCurrentUser(user);
+        window.localStorage.setItem("sl_user_id", String(user.id));
+        window.localStorage.setItem("sl_user_email", user.email);
+        window.localStorage.setItem("sl_user_role", user.role);
+      })
+      .catch(() => {
+        window.localStorage.removeItem("sl_access");
+        window.localStorage.removeItem("sl_refresh");
+        window.localStorage.removeItem("sl_user_id");
+        window.localStorage.removeItem("sl_user_email");
+        window.localStorage.removeItem("sl_user_role");
+        setCurrentUser(null);
+      });
   }, []);
 
   if (!ready) {
@@ -88,7 +122,7 @@ export function AppRoot() {
 
   return (
     <div className={isDark ? "min-h-screen bg-gray-900 text-white" : "min-h-screen bg-gray-50 text-gray-900"}>
-      <header className={isDark ? "border-b border-gray-800 bg-gray-900/90 backdrop-blur" : "border-b border-gray-200 bg-white/90 backdrop-blur"}>
+      <header className={isDark ? "relative z-[70] border-b border-gray-800 bg-gray-900/90 backdrop-blur" : "relative z-[70] border-b border-gray-200 bg-white/90 backdrop-blur"}>
         <div className="max-w-6xl mx-auto px-4 py-2 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <InlineMachine />
@@ -128,14 +162,9 @@ export function AppRoot() {
         </div>
       </header>
       <main className="max-w-4xl mx-auto px-4 py-10">
-        <section className="flex flex-col items-center text-center gap-6">
-          <h1 className="text-3xl md:text-4xl font-bold">
-            {t("heroTitle")}
-          </h1>
-          <p className={isDark ? "text-gray-300 text-sm md:text-base max-w-2xl" : "text-gray-700 text-sm md:text-base max-w-2xl"}>
-            {t("heroText")}
-          </p>
-          {!isAuthenticated && (
+        {!isAuthenticated && (
+          <section className="space-y-8">
+            <LandingDescription />
             <div className="flex flex-wrap gap-3 justify-center">
               <button
                 onClick={openSignUp}
@@ -150,8 +179,13 @@ export function AppRoot() {
                 {t("heroSecondaryCta")}
               </button>
             </div>
-          )}
-        </section>
+          </section>
+        )}
+        {isAuthenticated && (
+          <section className="space-y-6">
+            <UserTerritoryView territoryId={currentTerritoryId} onSelectTerritory={setCurrentTerritoryId} />
+          </section>
+        )}
       </main>
       <AuthPortal
         open={authOpen}

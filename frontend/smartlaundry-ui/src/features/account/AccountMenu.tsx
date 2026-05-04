@@ -1,9 +1,11 @@
-import { useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { useI18n } from "../../app-shell/i18n-context";
 import { apiClient } from "../../shared/apiClient";
-import { ModalShell } from "../../ui-kit/ModalShell";
 import { AdminUserItem, UserInfo, UserRole } from "../../shared/auth-types";
+import { ModalShell } from "../../ui-kit/ModalShell";
+import { CodesModal } from "./CodesModal";
+import { Territory, TerritoryFormModal } from "./TerritoryFormModal";
 
 type AccountMenuProps = {
   user: UserInfo;
@@ -22,11 +24,6 @@ const languages: LanguageItem[] = [
   { code: "pl", label: "Polski", short: "PL" }
 ];
 
-type CodeItem = {
-  code: string;
-  name: string;
-};
-
 export function AccountMenu({ user, onLogout, onChangePassword }: AccountMenuProps) {
   const { t, lang, setLang } = useI18n();
 
@@ -34,9 +31,11 @@ export function AccountMenu({ user, onLogout, onChangePassword }: AccountMenuPro
   const [languageOpen, setLanguageOpen] = useState(false);
 
   const [codesOpen, setCodesOpen] = useState(false);
-  const [codes, setCodes] = useState<CodeItem[]>([]);
-  const [newCode, setNewCode] = useState("");
-  const [codesError, setCodesError] = useState<string | null>(null);
+  const [userCodes, setUserCodes] = useState<string[]>([]);
+
+  const [territories, setTerritories] = useState<Territory[]>([]);
+  const [territoryModalOpen, setTerritoryModalOpen] = useState(false);
+  const [editingTerritory, setEditingTerritory] = useState<Territory | null>(null);
 
   const [usersOpen, setUsersOpen] = useState(false);
   const [users, setUsers] = useState<AdminUserItem[]>([]);
@@ -59,25 +58,103 @@ export function AccountMenu({ user, onLogout, onChangePassword }: AccountMenuPro
 
   const currentLanguage = languages.find(l => l.code === lang) ?? languages[0];
 
-  const handleAddCode = () => {
-    const value = newCode.trim();
-    if (value.length < 4) {
-      setCodesError(t("profileCodesErrorInvalid"));
-      return;
+  useEffect(() => {
+    if (!menuOpen) {
+      setLanguageOpen(false);
     }
-    if (codes.some(c => c.code.toLowerCase() === value.toLowerCase())) {
-      setCodesError(t("profileCodesErrorDuplicate"));
-      return;
+  }, [menuOpen]);
+
+  const handleAddCode = async (value: string): Promise<string | null> => {
+    const v = value.trim();
+    if (v.length < 4) {
+      return t("profileCodesErrorInvalid");
     }
-    const item: CodeItem = { code: value, name: value };
-    setCodes(prev => [...prev, item]);
-    setNewCode("");
-    setCodesError(null);
+    if (userCodes.some(c => c.toLowerCase() === v.toLowerCase())) {
+      return t("profileCodesErrorDuplicate");
+    }
+    try {
+      await apiClient.post("territories/join/", { code: v });
+      setUserCodes(prev => [...prev, v]);
+      return null;
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      if (detail) return String(detail);
+      return t("profileCodesErrorInvalid");
+    }
   };
 
   const openCodesModal = () => {
+    if (user.role === "admin" || user.role === "superadmin") {
+      loadAdminTerritories();
+    } else {
+      loadUserCodes();
+    }
     setCodesOpen(true);
     setMenuOpen(false);
+  };
+
+  const openTerritoryCreate = () => {
+    setEditingTerritory(null);
+    setTerritoryModalOpen(true);
+  };
+
+  const openTerritoryEdit = (territory: Territory) => {
+    setEditingTerritory(territory);
+    setTerritoryModalOpen(true);
+  };
+
+  const handleSaveTerritory = async (territory: Territory): Promise<string | null> => {
+    const payload = {
+      name: territory.name,
+      zones: Array.from({ length: territory.zones }).map((_, zoneIdx) => {
+        const machines = territory.machines.filter(m => m.zoneIndex === zoneIdx);
+        const desc = territory.zoneDescriptions?.[zoneIdx] || "";
+        return {
+          name: `${t("territoryZoneLabel")} ${zoneIdx + 1}${desc ? ` (${desc})` : ""}`,
+          description: territory.zoneDescriptions?.[zoneIdx] || "",
+          order: zoneIdx,
+          machines: machines.map(m => ({
+            number: m.number,
+            model_name: m.model,
+            instructions_found: m.found,
+            programs: m.programs.map(p => ({
+              name: p.name,
+              duration_minutes: p.duration_minutes
+            })),
+            status: "available",
+          })),
+        };
+      }),
+    };
+
+    const isNew = territory.code === "" || territory.id.startsWith("terr-");
+    try {
+      const response = isNew
+        ? await apiClient.post("territories/admin/", payload)
+        : await apiClient.patch(`territories/admin/${territory.id}/`, payload);
+      const normalized = normalizeTerritory(response.data);
+      setTerritories(prev => {
+        const exists = prev.find(t => t.id === normalized.id);
+        if (exists) {
+          return prev.map(t => (t.id === normalized.id ? normalized : t));
+        }
+        return [...prev, normalized];
+      });
+      if (isNew) {
+        setCodesOpen(true);
+        setMenuOpen(false);
+      }
+      return null;
+    } catch (err: any) {
+      const data = err?.response?.data || {};
+      const detail = data?.detail;
+      if (typeof detail === "string") return detail;
+      const nameError = Array.isArray(data?.name) ? data.name[0] : null;
+      if (nameError) return String(nameError);
+      const nonField = Array.isArray(data?.non_field_errors) ? data.non_field_errors[0] : null;
+      if (nonField) return String(nonField);
+      return t("territoryErrorSaveFailed");
+    }
   };
 
   const roleName = (r: UserRole) => {
@@ -86,7 +163,52 @@ export function AccountMenu({ user, onLogout, onChangePassword }: AccountMenuPro
     return t("authRoleUser");
   };
 
+  const normalizeTerritory = (data: any): Territory => {
+    const zonesArr = Array.isArray(data?.zones) ? data.zones : [];
+    const machines: Territory["machines"] = [];
+    const machinesPerZone: number[] = [];
+    const zoneDescriptions: string[] = [];
+    zonesArr.forEach((z: any, zoneIdx: number) => {
+      const mz = Array.isArray(z?.machines) ? z.machines : [];
+      machinesPerZone[zoneIdx] = mz.length || 1;
+      zoneDescriptions[zoneIdx] = z?.description || "";
+      mz.forEach((m: any, idx: number) => {
+        const programs = Array.isArray(m?.programs)
+          ? m.programs.map((p: any) => ({
+              name: p?.name || "Program",
+              duration_minutes: Number(p?.duration_minutes) || 0,
+            }))
+          : [];
+        machines.push({
+          id: String(m?.id || `${data?.id}-${zoneIdx}-${idx}`),
+          zoneIndex: zoneIdx,
+          number: Number(m?.number) || idx + 1,
+          model: m?.model_name || "",
+          found: Boolean(m?.instructions_found) || programs.length > 0,
+          programs,
+        });
+      });
+    });
+    return {
+      id: String(data?.id || ""),
+      name: data?.name || "",
+      code: data?.code || "",
+      zones: zonesArr.length || 1,
+      machinesPerZone: machinesPerZone.length ? machinesPerZone : [1],
+      zoneDescriptions,
+      machines,
+    };
+  };
+
   const displayUserId = (u: AdminUserItem) => `User#${u.id}`;
+
+  useEffect(() => {
+    if (user.role === "admin" || user.role === "superadmin") {
+      loadAdminTerritories();
+    } else {
+      loadUserCodes();
+    }
+  }, [user.role]);
 
   const loadUsers = async () => {
     setUsersError(null);
@@ -99,6 +221,28 @@ export function AccountMenu({ user, onLogout, onChangePassword }: AccountMenuPro
       setUsersError(typeof detail === "string" ? detail : t("profileUsersErrorLoad"));
     } finally {
       setUsersLoading(false);
+    }
+  };
+
+  const loadAdminTerritories = async () => {
+    try {
+      const response = await apiClient.get("territories/admin/");
+      const items = Array.isArray(response.data) ? response.data.map(normalizeTerritory) : [];
+      setTerritories(items);
+    } catch {
+      // ignore
+    }
+  };
+
+  const loadUserCodes = async () => {
+    try {
+      const response = await apiClient.get("territories/mine/");
+      const codes = Array.isArray(response.data)
+        ? response.data.map((item: any) => item?.territory?.code).filter(Boolean)
+        : [];
+      setUserCodes(codes);
+    } catch {
+      // ignore
     }
   };
 
@@ -133,32 +277,42 @@ export function AccountMenu({ user, onLogout, onChangePassword }: AccountMenuPro
 
   return (
     <>
-      <div className="relative">
+      <div className="relative z-[80]">
         <button
           onClick={() => setMenuOpen(prev => !prev)}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm shadow-sm hover:shadow transition-shadow"
         >
           <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-semibold">
             {roleLabel[0]}
           </div>
-          <div className="flex flex-col items-start leading-tight">
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              {roleLabel}
+          <div className="flex flex-col items-start leading-tight max-w-[180px]">
+            <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
+              {maskedEmail}
             </span>
             <span className="text-sm font-semibold">
-              {roleLabel} {idLabel}
+              {`${roleLabel} ${idLabel}`}
             </span>
           </div>
-          <ChevronDown size={16} />
+          <ChevronDown
+            size={16}
+            className={`transition-transform duration-200 ${menuOpen ? "rotate-180" : ""}`}
+          />
         </button>
 
         {menuOpen && (
-          <div className="absolute right-0 mt-2 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg z-40">
-            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800">
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                {roleLabel} {idLabel}
+          <div className="absolute right-0 mt-2 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl z-[90]">
+            <div className="px-3 py-3 border-b border-gray-200 dark:border-gray-800">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold">
+                  {`${roleLabel} ${idLabel}`}
+                </div>
+                {(user.role === "admin" || user.role === "superadmin") && (
+                  <span className="text-[11px] px-2 py-1 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
+                    {roleLabel}
+                  </span>
+                )}
               </div>
-              <div className="text-sm font-medium">
+              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 break-all">
                 {maskedEmail}
               </div>
             </div>
@@ -172,11 +326,14 @@ export function AccountMenu({ user, onLogout, onChangePassword }: AccountMenuPro
                   <span>{t("profileLanguage")}</span>
                   <span className="flex items-center gap-1 text-xs">
                     <span>{currentLanguage.short}</span>
-                    <ChevronDown size={12} />
+                    <ChevronDown
+                      size={12}
+                      className={`transition-transform duration-200 ${languageOpen ? "rotate-180" : ""}`}
+                    />
                   </span>
                 </button>
                 {languageOpen && (
-                  <div className="absolute top-full right-full mt-1 mr-2 w-44 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg z-50">
+                  <div className="absolute top-full right-2 mt-1 w-44 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl z-[95]">
                     {languages.map(item => (
                       <button
                         key={item.code}
@@ -204,6 +361,17 @@ export function AccountMenu({ user, onLogout, onChangePassword }: AccountMenuPro
               >
                 {t("profileCodes")}
               </button>
+              {(user.role === "admin" || user.role === "superadmin") && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    openTerritoryCreate();
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  {t("territoryFormTitle")}
+                </button>
+              )}
 
               {user.role === "superadmin" && (
                 <button
@@ -241,79 +409,25 @@ export function AccountMenu({ user, onLogout, onChangePassword }: AccountMenuPro
       </div>
 
       {codesOpen && (
-        <ModalShell open={codesOpen} onClose={() => setCodesOpen(false)}>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-lg font-semibold">
-                {t("profileCodesTitle")}
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {t("profileCodesDescription")}
-              </p>
-            </div>
-            <button
-              onClick={() => setCodesOpen(false)}
-              className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
-            >
-              <X size={18} />
-            </button>
-          </div>
+        <CodesModal
+          open={codesOpen}
+          onClose={() => setCodesOpen(false)}
+          role={user.role}
+          territories={territories}
+          onEditTerritory={openTerritoryEdit}
+          onCreateTerritory={openTerritoryCreate}
+          userCodes={userCodes}
+          onAddUserCode={(code) => handleAddCode(code)}
+        />
+      )}
 
-          <div className="space-y-4">
-            <div>
-              <div className="text-sm font-medium mb-1">
-                {t("profileCodesCurrent")}
-              </div>
-              {codes.length === 0 ? (
-                <div className="text-xs text-gray-500 dark:text-gray-400">
-                  {t("profileCodesEmpty")}
-                </div>
-              ) : (
-                <ul className="space-y-2 max-h-40 overflow-y-auto">
-                  {codes.map(item => (
-                    <li
-                      key={item.code}
-                      className="flex justify-between items-center px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-xs"
-                    >
-                      <div>
-                        <div className="font-mono text-sm">{item.code}</div>
-                        <div className="text-gray-500 dark:text-gray-400">
-                          {item.name}
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">
-                {t("profileCodesNewCodeLabel")}
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newCode}
-                  onChange={e => setNewCode(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm"
-                  placeholder={t("profileCodesNewCodePlaceholder")}
-                />
-                <button
-                  onClick={handleAddCode}
-                  className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
-                >
-                  {t("profileCodesAdd")}
-                </button>
-              </div>
-              {codesError && (
-                <div className="text-xs text-red-600 dark:text-red-400">
-                  {codesError}
-                </div>
-              )}
-            </div>
-          </div>
-        </ModalShell>
+      {territoryModalOpen && (
+        <TerritoryFormModal
+          open={territoryModalOpen}
+          onClose={() => setTerritoryModalOpen(false)}
+          initial={editingTerritory}
+          onSave={handleSaveTerritory}
+        />
       )}
 
       {usersOpen && (
@@ -329,9 +443,9 @@ export function AccountMenu({ user, onLogout, onChangePassword }: AccountMenuPro
             </div>
             <button
               onClick={() => setUsersOpen(false)}
-              className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="p-1 rounded-full text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
-              <X size={18} />
+              <ChevronDown size={18} className="rotate-180" />
             </button>
           </div>
 

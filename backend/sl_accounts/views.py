@@ -16,9 +16,9 @@ from .serializers import (
     PasswordResetConfirmSerializer,
     UserInfoSerializer,
 )
-from sl_notifications.tasks import (
-    send_verification_email_task,
-    send_password_reset_email_task,
+from sl_accounts.email_service import (
+    send_verification_code_email,
+    send_password_reset_code_email,
 )
 
 
@@ -27,11 +27,11 @@ def generate_code() -> str:
 
 
 def send_verification_email(email: str, code: str, ui_language: str) -> None:
-    send_verification_email_task(email, code, ui_language)
+    send_verification_code_email(email, code, ui_language)
 
 
 def send_reset_email(email: str, code: str, ui_language: str) -> None:
-    send_password_reset_email_task(email, code, ui_language)
+    send_password_reset_code_email(email, code, ui_language)
 
 
 class RegisterView(APIView):
@@ -168,7 +168,13 @@ class LoginView(APIView):
 
         serializer = LoginSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+        payload = serializer.validated_data
+        if serializer.user:
+            payload = {
+                **serializer.validated_data,
+                "user": UserInfoSerializer(serializer.user).data,
+            }
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class PasswordResetRequestView(APIView):

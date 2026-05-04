@@ -6,8 +6,6 @@ def normalize_language(ui_language: str) -> str:
     value = (ui_language or "en").lower()
     if value.startswith("pl"):
         return "pl"
-    if value.startswith("ru"):
-        return "ru"
     return "en"
 
 
@@ -19,12 +17,6 @@ def send_verification_code_email(email: str, code: str, ui_language: str) -> Non
         body = (
             f"Twój kod weryfikacyjny SmartLaundry: {code}.\n"
             "Kod jest ważny przez 15 minut."
-        )
-    elif lang == "ru":
-        subject = "SmartLaundry – код подтверждения"
-        body = (
-            f"Ваш код подтверждения SmartLaundry: {code}.\n"
-            "Код действует 15 минут."
         )
     else:
         subject = "SmartLaundry – verification code"
@@ -45,12 +37,6 @@ def send_password_reset_code_email(email: str, code: str, ui_language: str) -> N
         body = (
             f"Twój kod do resetu hasła SmartLaundry: {code}.\n"
             "Kod jest ważny przez 15 minut."
-        )
-    elif lang == "ru":
-        subject = "SmartLaundry – восстановление пароля"
-        body = (
-            f"Ваш код для восстановления пароля SmartLaundry: {code}.\n"
-            "Код действует 15 минут."
         )
     else:
         subject = "SmartLaundry – password reset code"

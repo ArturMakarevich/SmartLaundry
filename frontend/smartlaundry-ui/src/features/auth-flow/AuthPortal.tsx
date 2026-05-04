@@ -50,7 +50,7 @@ export function AuthPortal({ open, onClose, initialMode = "signin", initialEmail
         </h2>
         <button
           onClick={onClose}
-          className="ml-4 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+          className="ml-4 p-1 rounded-full text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
         >
           <X size={18} />
         </button>

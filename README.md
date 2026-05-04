@@ -2,6 +2,10 @@
 
 This repository contains a minimal backend (Django REST + PostgreSQL + Redis + Celery) and frontend (React + TypeScript + Vite + Tailwind) for the SmartLaundry project.
 
+Product and market redesign notes:
+
+- [docs/smartlaundry-product-redesign.md](docs/smartlaundry-product-redesign.md)
+
 ## Prerequisites
 
 - Windows 11
