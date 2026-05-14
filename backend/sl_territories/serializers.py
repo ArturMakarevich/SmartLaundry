@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
+from datetime import timedelta
 from sl_accounts.serializers import UserInfoSerializer
 from .models import (
     Territory,
@@ -7,8 +8,10 @@ from .models import (
     Machine,
     WashProgram,
     TerritoryAccess,
+    TerritoryUserBlock,
     Booking,
     InstructionTemplate,
+    UserNotification,
 )
 
 
@@ -55,10 +58,11 @@ class ZoneSerializer(serializers.ModelSerializer):
 
 class TerritorySerializer(serializers.ModelSerializer):
     zones = ZoneSerializer(many=True)
+    booking_slot_minutes = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Territory
-        fields = ("id", "name", "code", "zones")
+        fields = ("id", "name", "code", "slot_strategy", "booking_slot_minutes", "zones")
 
     def create(self, validated_data):
         zones_data = validated_data.pop("zones", [])
@@ -97,7 +101,8 @@ class TerritorySerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         zones_data = validated_data.pop("zones", [])
         instance.name = validated_data.get("name", instance.name)
-        instance.save(update_fields=["name"])
+        instance.slot_strategy = validated_data.get("slot_strategy", instance.slot_strategy)
+        instance.save(update_fields=["name", "slot_strategy"])
 
         instance.zones.all().delete()
         for idx, zone_data in enumerate(zones_data):
@@ -142,40 +147,161 @@ class TerritoryAccessSerializer(serializers.ModelSerializer):
 
 class BookingSerializer(serializers.ModelSerializer):
     user = UserInfoSerializer(read_only=True)
+    machine_number = serializers.IntegerField(source="machine.number", read_only=True)
+    machine_model = serializers.CharField(source="machine.model_name", read_only=True)
+    zone_name = serializers.CharField(source="machine.zone.name", read_only=True)
+    zone_description = serializers.CharField(source="machine.zone.description", read_only=True)
+    territory_name = serializers.CharField(source="machine.zone.territory.name", read_only=True)
+    client_timezone_offset = serializers.IntegerField(write_only=True, required=False)
+    selected_program_name = serializers.CharField(required=False, allow_blank=True)
+    selected_program_duration_minutes = serializers.IntegerField(required=False, allow_null=True)
 
     class Meta:
         model = Booking
         fields = (
             "id",
             "machine",
+            "machine_number",
+            "machine_model",
+            "zone_name",
+            "zone_description",
+            "territory_name",
             "user",
             "start_time",
             "end_time",
             "status",
             "created_at",
+            "client_timezone_offset",
+            "selected_program_name",
+            "selected_program_duration_minutes",
+            "confirmed_at",
+            "wash_started_at",
+            "estimated_wash_end_at",
         )
-        read_only_fields = ("status", "created_at")
+        read_only_fields = (
+            "user",
+            "status",
+            "created_at",
+            "confirmed_at",
+            "wash_started_at",
+            "estimated_wash_end_at",
+        )
 
+    # Pełna walidacja rezerwacji: dostęp, blokada, wzorzec slotów, limit 3 rezerwacji,
+    # jedna pralka dziennie, nakładanie się z istniejącymi — wszystko przed zapisem
     def validate(self, attrs):
         start = attrs.get("start_time")
         end = attrs.get("end_time")
         machine = attrs.get("machine")
         if not start or not end or not machine:
             raise serializers.ValidationError("machine, start_time and end_time are required")
+        if machine.status in {Machine.STATUS_INACTIVE, Machine.STATUS_BROKEN}:
+            raise serializers.ValidationError("This washing machine is not available for reservations")
+        request = self.context.get("request")
+        territory = machine.zone.territory
+        if request and request.user and request.user.is_authenticated:
+            if not TerritoryAccess.objects.filter(
+                user=request.user,
+                territory=territory,
+            ).exists():
+                raise serializers.ValidationError("You don't have access to this territory")
+            if TerritoryUserBlock.objects.filter(
+                user=request.user,
+                territory=territory,
+                is_active=True,
+            ).exists():
+                raise serializers.ValidationError("You are blocked in this territory")
         if end <= start:
             raise serializers.ValidationError("end_time must be greater than start_time")
-        overlap = Booking.objects.filter(
-            machine=machine,
-            status=Booking.STATUS_ACTIVE,
-            start_time__lt=end,
-            end_time__gt=start,
+        slot_minutes = int((end - start).total_seconds() // 60)
+        selected_duration = attrs.get("selected_program_duration_minutes")
+        if selected_duration is not None:
+            if selected_duration <= 0:
+                raise serializers.ValidationError("Selected program duration must be greater than zero")
+            if slot_minutes < selected_duration:
+                raise serializers.ValidationError("Booking must cover the selected washing mode duration")
+        window_start = timezone.localtime(timezone.now()).replace(
+            hour=0, minute=0, second=0, microsecond=0
         )
-        if overlap.exists():
+        window_end = window_start + timedelta(days=3)
+        local_start = timezone.localtime(start)
+        if local_start < window_start or local_start >= window_end:
+            raise serializers.ValidationError("Bookings are only available for the next 3 days")
+        if request and request.user and request.user.is_authenticated:
+            try:
+                access = TerritoryAccess.objects.get(user=request.user, territory=territory)
+                effective_limit = access.effective_booking_limit()
+            except TerritoryAccess.DoesNotExist:
+                effective_limit = 3
+            existing_count = Booking.objects.filter(
+                user=request.user,
+                status=Booking.STATUS_ACTIVE,
+                start_time__gte=window_start,
+                start_time__lt=window_end,
+            ).count()
+            if existing_count >= effective_limit:
+                raise serializers.ValidationError(
+                    f"Booking limit reached. You already have {existing_count} active bookings "
+                    f"(limit: {effective_limit})."
+                )
+            local_day_start = local_start.replace(hour=0, minute=0, second=0, microsecond=0)
+            local_day_end = local_day_start + timedelta(days=1)
+            same_machine_today = Booking.objects.filter(
+                user=request.user,
+                machine=machine,
+                status=Booking.STATUS_ACTIVE,
+                start_time__gte=local_day_start,
+                start_time__lt=local_day_end,
+            ).exists()
+            if same_machine_today:
+                raise serializers.ValidationError(
+                    "You already have a booking for this machine on that day"
+                )
+        if self._overlap_exists(machine, start, end):
             raise serializers.ValidationError("Slot overlaps with existing booking")
         if start < timezone.now():
             raise serializers.ValidationError("Cannot book in the past")
         return attrs
 
     def create(self, validated_data):
+        from django.db import transaction
+
         validated_data["user"] = self.context["request"].user
-        return super().create(validated_data)
+        machine = validated_data["machine"]
+        start = validated_data["start_time"]
+        end = validated_data["end_time"]
+        # select_for_update blokuje wiersz maszyny w DB — zapobiega podwójnej rezerwacji
+        # gdy dwóch użytkowników rezerwuje ten sam slot dokładnie w tym samym momencie
+        with transaction.atomic():
+            Machine.objects.select_for_update().get(pk=machine.pk)
+            if self._overlap_exists(machine, start, end):
+                raise serializers.ValidationError("Slot overlaps with existing booking")
+            return super().create(validated_data)
+
+    @staticmethod
+    def _overlap_exists(machine, start, end) -> bool:
+        return Booking.objects.filter(
+            machine=machine,
+            status=Booking.STATUS_ACTIVE,
+            start_time__lt=end,
+            end_time__gt=start,
+        ).exists()
+
+
+
+class UserNotificationSerializer(serializers.ModelSerializer):
+    territory_id = serializers.IntegerField(source="territory_id", read_only=True)
+
+    class Meta:
+        model = UserNotification
+        fields = (
+            "id",
+            "type",
+            "title",
+            "message",
+            "is_read",
+            "created_at",
+            "booking",
+            "territory_id",
+        )
+        read_only_fields = fields

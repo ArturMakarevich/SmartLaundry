@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .models import SmartLaundryUser, EmailVerificationCode, PasswordResetToken
@@ -16,9 +17,9 @@ from .serializers import (
     PasswordResetConfirmSerializer,
     UserInfoSerializer,
 )
-from sl_accounts.email_service import (
-    send_verification_code_email,
-    send_password_reset_code_email,
+from sl_notifications.tasks import (
+    send_verification_email_task,
+    send_password_reset_email_task,
 )
 
 
@@ -27,11 +28,12 @@ def generate_code() -> str:
 
 
 def send_verification_email(email: str, code: str, ui_language: str) -> None:
-    send_verification_code_email(email, code, ui_language)
+    # Отправка через Celery — не блокирует HTTP-запрос
+    send_verification_email_task.delay(email, code, ui_language)
 
 
 def send_reset_email(email: str, code: str, ui_language: str) -> None:
-    send_password_reset_code_email(email, code, ui_language)
+    send_password_reset_email_task.delay(email, code, ui_language)
 
 
 class RegisterView(APIView):
@@ -143,6 +145,9 @@ class ResendVerificationCodeView(APIView):
 class VerifyEmailView(APIView):
     authentication_classes = []
     permission_classes = []
+    # 5 попыток/мин — защита от brute force шестизначного кода
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_code"
 
     def post(self, request):
         serializer = EmailVerificationSerializer(data=request.data)
@@ -205,6 +210,8 @@ class PasswordResetRequestView(APIView):
 class PasswordResetConfirmView(APIView):
     authentication_classes = []
     permission_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_code"
 
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(data=request.data)

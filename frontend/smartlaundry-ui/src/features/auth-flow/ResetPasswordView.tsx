@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { apiClient } from "../../shared/apiClient";
 import { useI18n } from "../../app-shell/i18n-context";
@@ -7,11 +7,12 @@ type Props = {
   onSwitchToSignIn: () => void;
   onSuccess: () => void;
   initialEmail?: string;
+  returnLabel?: string;
 };
 
 type Step = "request" | "confirm" | "done";
 
-export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }: Props) {
+export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail, returnLabel }: Props) {
   const { t, lang } = useI18n();
   const [step, setStep] = useState<Step>("request");
 
@@ -80,7 +81,8 @@ export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }:
     return null;
   };
 
-  const handleSendCode = async () => {
+  const handleSendCode = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     setError(null);
     setInfo(null);
 
@@ -110,7 +112,8 @@ export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }:
     }
   };
 
-  const handleChangePassword = async () => {
+  const handleChangePassword = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     setError(null);
     setInfo(null);
 
@@ -168,7 +171,7 @@ export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }:
           }}
           className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"
         >
-          {t("authGoToSignIn")}
+          {returnLabel ?? t("authGoToSignIn")}
         </button>
       </div>
     );
@@ -176,7 +179,7 @@ export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }:
 
   if (step === "request") {
     return (
-      <div className="space-y-4">
+      <form className="space-y-4" onSubmit={handleSendCode}>
         {error && (
           <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md px-3 py-2">
             {error}
@@ -194,9 +197,11 @@ export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }:
           </label>
           <input
             type="email"
+            name="username"
+            autoComplete="username"
             value={email}
             onChange={e => setEmail(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm"
+            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-base"
             placeholder="you@example.com"
             readOnly={emailReadonly}
           />
@@ -204,25 +209,26 @@ export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }:
 
         <div className="flex justify-between items-center text-xs">
           <button
+            type="button"
             onClick={onSwitchToSignIn}
             className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
           >
             {t("authBack")}
           </button>
           <button
-            onClick={handleSendCode}
+            type="submit"
             disabled={loading}
             className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {t("authSendCode")}
           </button>
         </div>
-      </div>
+      </form>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <form className="space-y-4" onSubmit={handleChangePassword}>
       {error && (
         <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md px-3 py-2">
           {error}
@@ -240,9 +246,11 @@ export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }:
         </label>
         <input
           type="email"
+          name="username"
+          autoComplete="username"
           value={email}
           readOnly
-          className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-sm cursor-not-allowed"
+          className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-base cursor-not-allowed"
         />
       </div>
 
@@ -252,12 +260,17 @@ export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }:
         </label>
         <input
           type="text"
+          name="one-time-code"
+          autoComplete="one-time-code"
           maxLength={6}
           value={code}
           onChange={e => setCode(e.target.value.replace(/[^0-9]/g, ""))}
           className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-center tracking-[0.3em] text-lg"
           placeholder="000000"
         />
+        <p className="text-[10px] text-gray-500 dark:text-gray-400">
+          {t("authCodeSpamHint")}
+        </p>
       </div>
 
       <div className="space-y-2">
@@ -267,9 +280,11 @@ export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }:
         <div className="relative">
           <input
             type={showPassword ? "text" : "password"}
+            name="new-password"
+            autoComplete="new-password"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm pr-12"
+            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-base pr-12"
           />
           <button
             type="button"
@@ -290,27 +305,30 @@ export function ResetPasswordView({ onSwitchToSignIn, onSuccess, initialEmail }:
         </label>
         <input
           type="password"
+          name="confirm-password"
+          autoComplete="new-password"
           value={repeatPassword}
           onChange={e => setRepeatPassword(e.target.value)}
-          className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm"
+          className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-base"
         />
       </div>
 
       <div className="flex justify-between items-center text-xs">
         <button
+          type="button"
           onClick={onSwitchToSignIn}
           className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
         >
           {t("authBack")}
         </button>
         <button
-          onClick={handleChangePassword}
+          type="submit"
           disabled={loading}
           className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {t("authSave")}
         </button>
       </div>
-    </div>
+    </form>
   );
 }

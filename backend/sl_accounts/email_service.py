@@ -1,49 +1,30 @@
+import logging
+
 from django.conf import settings
 from django.core.mail import send_mail
 
+from .email_templates import reset_password_email, verification_email
 
-def normalize_language(ui_language: str) -> str:
-    value = (ui_language or "en").lower()
-    if value.startswith("pl"):
-        return "pl"
-    return "en"
+logger = logging.getLogger(__name__)
+
+
+def send_code_email(email: str, code: str, subject: str, body: str, label: str) -> None:
+    if settings.DEBUG:
+        logger.debug("[EMAIL DEV] %s code for %s: %s", label, email, code)
+    try:
+        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
+    except Exception:
+        if settings.DEBUG:
+            logger.warning("[EMAIL DEV] Could not send %s email to %s; use code: %s", label, email, code)
+            return
+        raise
 
 
 def send_verification_code_email(email: str, code: str, ui_language: str) -> None:
-    lang = normalize_language(ui_language)
-
-    if lang == "pl":
-        subject = "SmartLaundry – kod weryfikacyjny"
-        body = (
-            f"Twój kod weryfikacyjny SmartLaundry: {code}.\n"
-            "Kod jest ważny przez 15 minut."
-        )
-    else:
-        subject = "SmartLaundry – verification code"
-        body = (
-            f"Your SmartLaundry verification code: {code}.\n"
-            "The code is valid for 15 minutes."
-        )
-
-    print(f"[EMAIL DEBUG] Verification code for {email}: {code} ({lang})")
-    send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
+    subject, body = verification_email(ui_language, code)
+    send_code_email(email, code, subject, body, "verification")
 
 
 def send_password_reset_code_email(email: str, code: str, ui_language: str) -> None:
-    lang = normalize_language(ui_language)
-
-    if lang == "pl":
-        subject = "SmartLaundry – reset hasła"
-        body = (
-            f"Twój kod do resetu hasła SmartLaundry: {code}.\n"
-            "Kod jest ważny przez 15 minut."
-        )
-    else:
-        subject = "SmartLaundry – password reset code"
-        body = (
-            f"Your SmartLaundry password reset code: {code}.\n"
-            "The code is valid for 15 minutes."
-        )
-
-    print(f"[EMAIL DEBUG] Password reset code for {email}: {code} ({lang})")
-    send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
+    subject, body = reset_password_email(ui_language, code)
+    send_code_email(email, code, subject, body, "password reset")

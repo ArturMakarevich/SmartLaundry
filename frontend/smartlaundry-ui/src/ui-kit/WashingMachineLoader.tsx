@@ -7,9 +7,18 @@ type WashingMachineProps = {
   isLoading: boolean;
   progress: number;
   size?: number;
+  drumColor?: string;
+  className?: string;
 };
 
-function WashingMachine({ isDark, isLoading, progress, size = 120 }: WashingMachineProps) {
+function WashingMachine({
+  isDark,
+  isLoading,
+  progress,
+  size = 120,
+  drumColor,
+  className = "drop-shadow-lg"
+}: WashingMachineProps) {
   const [rotation, setRotation] = useState(0);
 
   useEffect(() => {
@@ -28,15 +37,16 @@ function WashingMachine({ isDark, isLoading, progress, size = 120 }: WashingMach
   const ringStroke = isDark ? "#4b5563" : "#9ca3af";
   const glassFill = isDark ? "#111827" : "#ffffff";
   const drumStroke = isDark ? "#6b7280" : "#9ca3af";
+  const activeDrumFill = drumColor || "none";
 
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 120 120"
-      className="drop-shadow-lg"
+      className={className}
     >
-      <rect x="10" y="20" width="100" height="90" rx="8" fill={bodyFill} stroke={bodyStroke} strokeWidth="2" />
+      <rect x="10" y="20" width="100" height="94" rx="8" fill={bodyFill} stroke={bodyStroke} strokeWidth="2" />
       <rect x="15" y="25" width="90" height="15" rx="4" fill={panelFill} />
       <circle cx="25" cy="32" r="3" fill="#2563eb" />
       <circle cx="35" cy="32" r="3" fill="#10b981" />
@@ -44,7 +54,7 @@ function WashingMachine({ isDark, isLoading, progress, size = 120 }: WashingMach
       <circle cx="60" cy="75" r="30" fill="none" stroke={ringStroke} strokeWidth="3" />
       <circle cx="60" cy="75" r="26" fill={glassFill} opacity="0.9" />
       <g transform={`rotate(${rotation} 60 75)`}>
-        <circle cx="60" cy="75" r="20" fill="none" stroke={drumStroke} strokeWidth="1" />
+        <circle cx="60" cy="75" r="20" fill={activeDrumFill} fillOpacity={drumColor ? "0.9" : "1"} stroke={drumStroke} strokeWidth="1" />
         {[0, 60, 120, 180, 240, 300].map(angle => {
           const rad = (angle * Math.PI) / 180;
           const x1 = 60 + 15 * Math.cos(rad);
@@ -127,7 +137,7 @@ export function FullscreenLoader() {
             SmartLaundry
           </div>
           <div className={isDark ? "text-gray-400 text-xs" : "text-gray-600 text-xs"}>
-            Loading {progress}%
+            {t("loadingProgress").replace("{progress}", String(progress))}
           </div>
           {slow && (
             <div className={isDark ? "text-gray-300 text-xs mt-2 space-y-1" : "text-gray-700 text-xs mt-2 space-y-1"}>
@@ -142,12 +152,27 @@ export function FullscreenLoader() {
   );
 }
 
-export function InlineMachine({ size = 52 }: { size?: number }) {
+export function InlineMachine({
+  size = 52,
+  drumColor,
+  className
+}: {
+  size?: number;
+  drumColor?: string;
+  className?: string;
+}) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
   return (
     <div className="flex items-center justify-center">
-      <WashingMachine isDark={isDark} isLoading={false} progress={0} size={size} />
+      <WashingMachine
+        isDark={isDark}
+        isLoading={false}
+        progress={0}
+        size={size}
+        drumColor={drumColor}
+        className={className}
+      />
     </div>
   );
 }

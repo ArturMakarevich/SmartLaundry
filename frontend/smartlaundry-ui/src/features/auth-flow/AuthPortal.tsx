@@ -15,9 +15,11 @@ type AuthPortalProps = {
   initialMode?: Mode;
   initialEmail?: string;
   onAuthSuccess?: (user: UserInfo) => void;
+  onResetReturn?: () => void;
+  resetReturnLabel?: string;
 };
 
-export function AuthPortal({ open, onClose, initialMode = "signin", initialEmail, onAuthSuccess }: AuthPortalProps) {
+export function AuthPortal({ open, onClose, initialMode = "signin", initialEmail, onAuthSuccess, onResetReturn, resetReturnLabel }: AuthPortalProps) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const { t } = useI18n();
 
@@ -29,6 +31,14 @@ export function AuthPortal({ open, onClose, initialMode = "signin", initialEmail
 
   const handleSuccess = () => {
     onClose();
+  };
+
+  const handleResetReturn = () => {
+    if (onResetReturn) {
+      onResetReturn();
+      return;
+    }
+    setMode("signin");
   };
 
   const getTitle = () => {
@@ -43,16 +53,17 @@ export function AuthPortal({ open, onClose, initialMode = "signin", initialEmail
   }
 
   return (
-    <ModalShell open={open} onClose={onClose}>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-center flex-1">
+    <ModalShell open={open} onClose={onClose} size="xl" verticalAlign="center">
+      <div className="flex items-start justify-between mb-6">
+        <h2 className="text-2xl font-bold text-slate-950 dark:text-white">
           {getTitle()}
         </h2>
         <button
           onClick={onClose}
-          className="ml-4 p-1 rounded-full text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+          aria-label="Zamknij"
+          className="ml-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
         >
-          <X size={18} />
+          <X size={20} />
         </button>
       </div>
 
@@ -76,8 +87,9 @@ export function AuthPortal({ open, onClose, initialMode = "signin", initialEmail
       {mode === "reset" && (
         <ResetPasswordView
           initialEmail={initialEmail}
-          onSwitchToSignIn={() => setMode("signin")}
+          onSwitchToSignIn={handleResetReturn}
           onSuccess={handleSuccess}
+          returnLabel={resetReturnLabel}
         />
       )}
     </ModalShell>

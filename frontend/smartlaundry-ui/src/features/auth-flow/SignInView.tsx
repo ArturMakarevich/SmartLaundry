@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { apiClient } from "../../shared/apiClient";
 import { useI18n } from "../../app-shell/i18n-context";
@@ -50,7 +50,8 @@ export function SignInView({ onSwitchToSignUp, onSwitchToReset, onSuccess, onAut
     }
   };
 
-  const handleLogin = async () => {
+  const handleLogin = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     setError(null);
 
     if (!email || !password) {
@@ -107,41 +108,45 @@ export function SignInView({ onSwitchToSignUp, onSwitchToReset, onSuccess, onAut
   };
 
   return (
-    <div className="space-y-4">
+    <form className="space-y-5" onSubmit={handleLogin}>
       {error && (
-        <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md px-3 py-2">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
           {error}
         </div>
       )}
 
-      <div className="space-y-2">
-        <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">
+      <div className="space-y-1.5">
+        <label className="block text-sm font-semibold text-slate-700 dark:text-gray-200">
           {t("authEmailLabel")}
         </label>
         <input
           type="email"
+          name="username"
+          autoComplete="username"
           value={email}
           onChange={e => setEmail(e.target.value)}
-          className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm"
+          className="h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
           placeholder="you@example.com"
         />
       </div>
 
-      <div className="space-y-2">
-        <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">
+      <div className="space-y-1.5">
+        <label className="block text-sm font-semibold text-slate-700 dark:text-gray-200">
           {t("authPasswordLabel")}
         </label>
         <div className="relative">
           <input
             type={showPassword ? "text" : "password"}
+            name="password"
+            autoComplete="current-password"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm pr-12"
+            className="h-12 w-full rounded-lg border border-slate-300 bg-white px-4 pr-12 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
           />
           <button
             type="button"
             onClick={togglePasswordVisibility}
-            className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-transform hover:scale-110"
+            className="absolute inset-y-0 right-0 flex items-center px-4 text-slate-400 transition hover:text-slate-700 dark:hover:text-gray-200"
           >
             {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
@@ -149,30 +154,29 @@ export function SignInView({ onSwitchToSignUp, onSwitchToReset, onSuccess, onAut
       </div>
 
       <button
-        onClick={handleLogin}
+        type="submit"
         disabled={loading}
-        className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+        className="h-12 w-full rounded-lg bg-blue-600 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {t("authContinue")}
+        {loading ? "…" : t("signIn")}
       </button>
 
-      <div className="flex justify-between items-center text-xs mt-1">
+      <div className="flex flex-col gap-2 pt-1 text-sm sm:flex-row sm:items-center sm:justify-between">
         <button
+          type="button"
           onClick={onSwitchToReset}
-          className="text-blue-600 dark:text-blue-300 hover:underline"
+          className="text-left text-slate-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-300"
         >
           {t("authForgotPassword")}
         </button>
-        <div className="text-gray-500 dark:text-gray-400">
-          {t("authNoAccountYet")}?{" "}
-          <button
-            onClick={onSwitchToSignUp}
-            className="ml-1 text-blue-600 dark:text-blue-300 hover:underline"
-          >
-            {t("signUp")}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onSwitchToSignUp}
+          className="text-left font-semibold text-blue-600 hover:underline dark:text-blue-400 sm:text-right"
+        >
+          {t("authNoAccountYet")}
+        </button>
       </div>
-    </div>
+    </form>
   );
 }

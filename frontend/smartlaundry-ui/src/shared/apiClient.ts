@@ -1,7 +1,8 @@
-import axios, { AxiosError, AxiosRequestConfig } from "axios";
+import axios, { AxiosError, AxiosHeaders, AxiosRequestConfig } from "axios";
 
 const baseURL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/";
+  import.meta.env.VITE_API_BASE_URL ??
+  `http://${window.location.hostname}:8000/api/`;
 
 export const apiClient = axios.create({
   baseURL,
@@ -11,10 +12,9 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use((config) => {
   const token = window.localStorage.getItem("sl_access");
   if (token) {
-    (config.headers as any) = {
-      ...(config.headers || {}),
-      Authorization: `Bearer ${token}`,
-    };
+    const headers = AxiosHeaders.from(config.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    config.headers = headers;
   }
   return config;
 });

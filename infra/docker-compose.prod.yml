@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: sl_postgres
+    env_file: ./env/postgres.env
+    volumes:
+      - sl_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartlaundry_user -d smartlaundry_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sl_redis
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ../backend
+    container_name: sl_backend
+    env_file: ../backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - sl_media:/app/media
+      - sl_static:/app/staticfiles
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             gunicorn sl_backend.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+
+  celery:
+    build:
+      context: ../backend
+    container_name: sl_celery
+    env_file: ../backend/.env
+    depends_on:
+      - backend
+      - redis
+    restart: unless-stopped
+    command: celery -A sl_backend worker -l info
+
+  frontend:
+    build:
+      context: ../frontend/smartlaundry-ui
+    container_name: sl_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  sl_postgres_data:
+  sl_media:
+  sl_static:
