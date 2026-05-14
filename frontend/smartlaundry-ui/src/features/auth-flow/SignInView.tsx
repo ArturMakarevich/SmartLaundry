@@ -141,7 +141,7 @@ export function SignInView({ onSwitchToSignUp, onSwitchToReset, onSuccess, onAut
             autoComplete="current-password"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            className="h-12 w-full rounded-lg border border-slate-300 bg-white px-4 pr-12 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            className="h-12 w-full rounded-lg border border-slate-300 bg-white px-4 pr-12 text-base text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
           />
           <button
             type="button"

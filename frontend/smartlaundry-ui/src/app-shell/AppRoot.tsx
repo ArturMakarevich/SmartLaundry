@@ -1348,7 +1348,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
                   true
                 )}
               </div>
-            ) : userTerritoriesCount !== 0 && renderSidebarButton(
+            ) : userTerritoriesCount != null && userTerritoriesCount !== 0 && renderSidebarButton(
               Home,
               t("navDashboard"),
               !isNotificationsPage && !isBookingsPage && !isTerritoriesPage,
@@ -1357,14 +1357,14 @@ const generateAdminInviteCode = async (territoryId: string) => {
 
             {isSuperAdmin && renderSidebarButton(Users, t("adminAllUsers"), isAdminUsersPage, () => navigateTo("/admin/users"))}
 
-            {(isAdminRole || userTerritoriesCount !== 0) && renderSidebarButton(
+            {(isAdminRole || userTerritoriesCount != null && userTerritoriesCount !== 0) && renderSidebarButton(
               CalendarClock,
               isAdminRole ? t("adminAllReservations") : t("navMyBookings"),
               isBookingsPage,
               () => navigateTo("/bookings")
             )}
 
-            {(isAdminRole || userTerritoriesCount !== 0) && renderSidebarButton(Bell, t("navNotifications"), isNotificationsPage, openAllNotifications)}
+            {(isAdminRole || userTerritoriesCount != null && userTerritoriesCount !== 0) && renderSidebarButton(Bell, t("navNotifications"), isNotificationsPage, openAllNotifications)}
 
             {!isAdminRole && renderSidebarButton(
               MapPin,
@@ -2124,9 +2124,9 @@ const generateAdminInviteCode = async (territoryId: string) => {
           </>
         ) : (
           <>
-            {userTerritoriesCount !== 0 && renderBottomNavItem(Home, t("navDashboard"), !isNotificationsPage && !isBookingsPage && !isTerritoriesPage, () => navigateTo("/"))}
-            {userTerritoriesCount !== 0 && renderBottomNavItem(CalendarClock, t("navMyBookings"), isBookingsPage, () => navigateTo("/bookings"))}
-            {userTerritoriesCount !== 0 && renderBottomNavItem(Bell, t("navNotifications"), isNotificationsPage, openAllNotifications, unreadNotifications)}
+            {userTerritoriesCount != null && userTerritoriesCount !== 0 && renderBottomNavItem(Home, t("navDashboard"), !isNotificationsPage && !isBookingsPage && !isTerritoriesPage, () => navigateTo("/"))}
+            {userTerritoriesCount != null && userTerritoriesCount !== 0 && renderBottomNavItem(CalendarClock, t("navMyBookings"), isBookingsPage, () => navigateTo("/bookings"))}
+            {userTerritoriesCount != null && userTerritoriesCount !== 0 && renderBottomNavItem(Bell, t("navNotifications"), isNotificationsPage, openAllNotifications, unreadNotifications)}
             {renderBottomNavItem(MapPin, t("navTerritories"), isTerritoriesPage || userTerritoriesCount === 0, () => navigateTo("/territories"))}
           </>
         )}

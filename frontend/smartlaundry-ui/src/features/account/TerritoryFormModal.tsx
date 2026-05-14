@@ -446,7 +446,7 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base dark:border-gray-600 dark:bg-gray-900"
               placeholder={t("territoryNamePlaceholder")}
             />
           </div>
@@ -476,7 +476,7 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
                   setMachinesPerZone(nextPerZone);
                   ensureMachinesShape(val, nextPerZone);
                 }}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base dark:border-gray-600 dark:bg-gray-900"
               />
             </div>
             <div className="space-y-2">
@@ -542,7 +542,7 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
                               }
                             }}
                             placeholder={t("territoryMachinePlaceholder")}
-                            className="min-w-0 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                            className="min-w-0 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base dark:border-gray-600 dark:bg-gray-900"
                           />
                           <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                             {machineLoading[machine.id] ? (
