@@ -2,7 +2,7 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "gunicorn sl_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
-healthcheckPath = "/api/accounts/me/"
+startCommand = "sh -c 'python manage.py migrate --noinput && gunicorn sl_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120'"
+healthcheckPath = "/api/"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
