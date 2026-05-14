@@ -17,10 +17,7 @@ from .serializers import (
     PasswordResetConfirmSerializer,
     UserInfoSerializer,
 )
-from sl_notifications.tasks import (
-    send_verification_email_task,
-    send_password_reset_email_task,
-)
+from .email_service import send_verification_code_email, send_password_reset_email
 
 
 def generate_code() -> str:
@@ -28,12 +25,11 @@ def generate_code() -> str:
 
 
 def send_verification_email(email: str, code: str, ui_language: str) -> None:
-    # Отправка через Celery — не блокирует HTTP-запрос
-    send_verification_email_task.delay(email, code, ui_language)
+    send_verification_code_email(email, code, ui_language)
 
 
 def send_reset_email(email: str, code: str, ui_language: str) -> None:
-    send_password_reset_email_task.delay(email, code, ui_language)
+    send_password_reset_email(email, code, ui_language)
 
 
 class RegisterView(APIView):
