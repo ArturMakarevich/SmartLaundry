@@ -17,7 +17,7 @@ from .serializers import (
     PasswordResetConfirmSerializer,
     UserInfoSerializer,
 )
-from .email_service import send_verification_code_email, send_password_reset_email
+from .email_service import send_verification_code_email, send_password_reset_code_email
 
 
 def generate_code() -> str:
@@ -29,7 +29,7 @@ def send_verification_email(email: str, code: str, ui_language: str) -> None:
 
 
 def send_reset_email(email: str, code: str, ui_language: str) -> None:
-    send_password_reset_email(email, code, ui_language)
+    send_password_reset_code_email(email, code, ui_language)
 
 
 class RegisterView(APIView):
