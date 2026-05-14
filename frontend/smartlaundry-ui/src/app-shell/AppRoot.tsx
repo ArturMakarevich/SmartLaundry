@@ -2270,14 +2270,17 @@ const generateAdminInviteCode = async (territoryId: string) => {
         </section>
 
         <section className="mb-20">
-          <h2 className="mb-8 text-center text-2xl font-bold text-slate-900 dark:text-white sm:text-3xl">
-            {t("howItWorksPageTitle")}
-          </h2>
+          <div className="mb-8 text-center">
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white sm:text-3xl">
+              {t("landingHelpTitle")}
+            </h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm font-medium leading-6 text-slate-500 dark:text-gray-400">
+              {t("landingHelpSubtitle")}
+            </p>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {([
-              ["howItWorks1Title", "howItWorks1Text"],
               ["howItWorks2Title", "howItWorks2Text"],
-              ["howItWorks3Title", "howItWorks3Text"],
               ["howItWorks4Title", "howItWorks4Text"],
               ["howItWorks5Title", "howItWorks5Text"],
               ["howItWorks6Title", "howItWorks6Text"],
@@ -2285,17 +2288,24 @@ const generateAdminInviteCode = async (territoryId: string) => {
               ["howItWorks8Title", "howItWorks8Text"],
               ["howItWorks9Title", "howItWorks9Text"],
               ["howItWorks10Title", "howItWorks10Text"],
-              ["howItWorks11Title", "howItWorks11Text"],
               ["howItWorks12Title", "howItWorks12Text"],
               ["howItWorks13Title", "howItWorks13Text"],
             ] as const).map(([titleKey, textKey], idx) => (
-              <div
+              <article
                 key={idx}
-                className="rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900"
+                tabIndex={0}
+                className="group rounded-xl border border-slate-200 bg-white p-5 outline-none transition hover:border-blue-200 hover:shadow-md focus:border-blue-300 focus:shadow-md dark:border-gray-700 dark:bg-gray-900 dark:hover:border-blue-800 dark:focus:border-blue-700"
               >
-                <p className="font-semibold text-slate-900 dark:text-white">{t(titleKey)}</p>
-                <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-gray-400">{t(textKey)}</p>
-              </div>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-slate-900 dark:text-white">{t(titleKey)}</p>
+                  <span className="text-xs font-semibold text-blue-600 opacity-80 dark:text-blue-300">
+                    {t("landingHelpReveal")}
+                  </span>
+                </div>
+                <p className="mt-2 max-h-0 overflow-hidden text-sm leading-6 text-slate-500 opacity-0 transition-all duration-200 group-hover:max-h-56 group-hover:opacity-100 group-focus:max-h-56 group-focus:opacity-100 dark:text-gray-400">
+                  {t(textKey)}
+                </p>
+              </article>
             ))}
           </div>
         </section>
@@ -2334,6 +2344,12 @@ const generateAdminInviteCode = async (territoryId: string) => {
           <p className="mb-2 text-sm leading-6 text-slate-600 dark:text-gray-300">
             {t("landingAdminRoleText")}
           </p>
+          <a
+            href="mailto:admin@gmail.com"
+            className="mb-2 inline-block text-sm font-bold text-blue-600 hover:underline dark:text-blue-400"
+          >
+            admin@gmail.com
+          </a>
           <p className="text-sm leading-6 text-slate-500 dark:text-gray-400">
             {t("landingAdminContactHint")}
           </p>
