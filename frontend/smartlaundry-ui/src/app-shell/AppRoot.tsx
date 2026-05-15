@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Copy,
   Home,
+  Info,
   MapPin,
   Plus,
   RefreshCw,
@@ -277,6 +278,7 @@ export function AppRoot() {
   const isAdminUsersPage = currentPath === "/admin/users";
   const isAdminTerritoriesPage = currentPath === "/admin/territories";
   const isAdminTerritoryCreatePage = currentPath === "/admin/territories/new";
+  const isAdminInfoPage = currentPath === "/admin/info";
   const highlightedBookingId = isBookingsPage
     ? Number(new URLSearchParams(window.location.search).get("booking")) || null
     : null;
@@ -1366,6 +1368,8 @@ const generateAdminInviteCode = async (territoryId: string) => {
 
             {(isAdminRole || userTerritoriesCount != null && userTerritoriesCount !== 0) && renderSidebarButton(Bell, t("navNotifications"), isNotificationsPage, openAllNotifications)}
 
+            {isAdminRole && renderSidebarButton(Info, t("adminInfoTab"), isAdminInfoPage, () => navigateTo("/admin/info"))}
+
             {!isAdminRole && renderSidebarButton(
               MapPin,
               t("navTerritories"),
@@ -1919,6 +1923,37 @@ const generateAdminInviteCode = async (territoryId: string) => {
                 )}
               </div>
             </section>
+          ) : isAdminRole && isAdminInfoPage ? (
+            <section className="w-full space-y-6">
+              <div className="flex flex-col gap-2">
+                <h1 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white sm:text-4xl xl:text-5xl">
+                  {t("adminInfoTitle")}
+                </h1>
+                <p className="text-base font-semibold text-slate-600 dark:text-gray-300">
+                  {t("adminInfoSubtitle")}
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
+                {([
+                  ["adminInfoS1Title", "adminInfoS1Body", "🏢"],
+                  ["adminInfoS2Title", "adminInfoS2Body", "📍"],
+                  ["adminInfoS3Title", "adminInfoS3Body", "🫧"],
+                  ["adminInfoS4Title", "adminInfoS4Body", "⏱️"],
+                  ["adminInfoS5Title", "adminInfoS5Body", "🔑"],
+                  ["adminInfoS6Title", "adminInfoS6Body", "👤"],
+                  ["adminInfoS7Title", "adminInfoS7Body", "📅"],
+                  ["adminInfoS8Title", "adminInfoS8Body", "⚠️"],
+                ] as [string, string, string][]).map(([titleKey, bodyKey, emoji]) => (
+                  <div key={titleKey} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                    <div className="mb-3 flex items-center gap-3">
+                      <span className="text-2xl leading-none">{emoji}</span>
+                      <h2 className="text-base font-bold text-slate-950 dark:text-white">{t(titleKey)}</h2>
+                    </div>
+                    <p className="text-sm font-medium leading-6 text-slate-600 dark:text-gray-300">{t(bodyKey)}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
           ) : (isTerritoriesPage || userTerritoriesCount === 0) && !isAdminRole ? (
             <section className="w-full space-y-6">
               <div>
@@ -2137,6 +2172,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
             {renderBottomNavItem(Plus, t("adminAddTerritory"), isAdminTerritoryCreatePage, openCreateTerritory)}
             {renderBottomNavItem(CalendarClock, t("adminAllReservations"), isBookingsPage, () => navigateTo("/bookings"))}
             {renderBottomNavItem(Bell, t("navNotifications"), isNotificationsPage, openAllNotifications, unreadNotifications)}
+            {renderBottomNavItem(Info, t("adminInfoTab"), isAdminInfoPage, () => navigateTo("/admin/info"))}
           </>
         ) : (
           <>
