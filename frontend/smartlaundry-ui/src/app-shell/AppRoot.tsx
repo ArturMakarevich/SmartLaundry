@@ -24,6 +24,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Timer,
   Users,
   X
 } from "lucide-react";
@@ -56,6 +57,7 @@ type UserBooking = {
   confirmed_at?: string | null;
   wash_started_at?: string | null;
   estimated_wash_end_at?: string | null;
+  machine_programs?: { id: number; name: string; duration_minutes: number }[];
   user?: { id: number; email: string; role?: UserRole };
 };
 
@@ -196,6 +198,7 @@ export function AppRoot() {
   const [appNotice, setAppNotice] = useState<string | null>(null);
   const [leaveTerritoryConfirm, setLeaveTerritoryConfirm] = useState<{ id: number; name: string } | null>(null);
   const [leavingTerritoryId, setLeavingTerritoryId] = useState<number | null>(null);
+  const [confirmProgramSelection, setConfirmProgramSelection] = useState<Record<number, string>>({});
   const [, setNavigationTick] = useState(0);
   const { t, lang } = useI18n();
   const { theme } = useTheme();
@@ -1731,21 +1734,52 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                 const remainingMs = Math.max(0, confirmationDeadline.getTime() - now.getTime());
                                 const remainingMinutes = Math.floor(remainingMs / 60000);
                                 const remainingSeconds = Math.floor((remainingMs % 60000) / 1000);
+                                const slotMinutes = Math.round((new Date(booking.end_time).getTime() - start.getTime()) / 60000);
+                                const programs = booking.machine_programs || [];
+                                const selectedProgramName = confirmProgramSelection[booking.id] ?? booking.selected_program_name ?? "";
+                                const selectedProgram = programs.find(p => p.name === selectedProgramName) || programs[0] || null;
+
+                                // Wash timer (after confirmation)
+                                const washEndAt = booking.estimated_wash_end_at ? new Date(booking.estimated_wash_end_at) : null;
+                                const washRemainingMs = washEndAt ? washEndAt.getTime() - now.getTime() : null;
+                                const washDone = washRemainingMs !== null && washRemainingMs <= 0;
+                                const washH = washRemainingMs && washRemainingMs > 0 ? Math.floor(washRemainingMs / 3600000) : 0;
+                                const washM = washRemainingMs && washRemainingMs > 0 ? Math.floor((washRemainingMs % 3600000) / 60000) : 0;
+                                const washS = washRemainingMs && washRemainingMs > 0 ? Math.floor((washRemainingMs % 60000) / 1000) : 0;
+                                const pad = (n: number) => String(n).padStart(2, "0");
+
                                 return (
                                   <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-gray-800 dark:bg-gray-900">
                                     {booking.confirmed_at ? (
-                                      <div className="space-y-1 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                                        <div>{t("bookingConfirmedShort")}</div>
+                                      <div className="space-y-2">
+                                        <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                                          <CheckCircle2 size={15} />
+                                          {t("bookingConfirmedShort")}
+                                        </div>
                                         {booking.selected_program_name && (
-                                          <div>
-                                            {t("bookingModeLabel")}: {booking.selected_program_name}
-                                            {booking.selected_program_duration_minutes
-                                              ? ` (${booking.selected_program_duration_minutes} min)`
-                                              : ""}
+                                          <div className="text-sm font-semibold text-slate-700 dark:text-gray-200">
+                                            {t("bookingModeLabel")}: <span className="text-blue-700 dark:text-blue-300">{booking.selected_program_name}{booking.selected_program_duration_minutes ? ` · ${booking.selected_program_duration_minutes} min` : ""}</span>
                                           </div>
                                         )}
-                                        {booking.estimated_wash_end_at && (
-                                          <div>{t("estimatedFinish")}: {formatBookingTime(booking.estimated_wash_end_at)}</div>
+                                        {washEndAt && (
+                                          <div className="text-sm font-semibold text-slate-700 dark:text-gray-200">
+                                            {t("estimatedFinish")}: <span className="text-blue-700 dark:text-blue-300">{formatBookingTime(booking.estimated_wash_end_at!)}</span>
+                                          </div>
+                                        )}
+                                        {washEndAt && !washDone && (
+                                          <div className="mt-2 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900/60 dark:bg-blue-950/30">
+                                            <Timer size={15} className="shrink-0 text-blue-600 dark:text-blue-300" />
+                                            <span className="font-mono text-sm font-bold text-blue-700 dark:text-blue-200">
+                                              {`${pad(washH)}:${pad(washM)}:${pad(washS)}`}
+                                            </span>
+                                            <span className="text-xs font-semibold text-blue-600 dark:text-blue-300">{t("washTimeRemaining")}</span>
+                                          </div>
+                                        )}
+                                        {washDone && (
+                                          <div className="mt-2 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/30">
+                                            <CheckCircle2 size={15} className="shrink-0 text-emerald-600 dark:text-emerald-300" />
+                                            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-200">{t("washLikelyDone")}</span>
+                                          </div>
                                         )}
                                       </div>
                                     ) : beforeStart ? (
@@ -1753,33 +1787,55 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                         {t("bookingConfirmWindowOpens").replace("{time}", formatBookingTime(booking.start_time))}
                                       </div>
                                     ) : canConfirm ? (
-                                      <div>
+                                      <div className="space-y-3">
                                         <div className="text-sm font-bold text-orange-700 dark:text-orange-300">
                                           {t("confirmWithin")} {String(remainingMinutes).padStart(2, "0")}:{String(remainingSeconds).padStart(2, "0")}
                                         </div>
-                                        <div className="mt-3 flex flex-wrap gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => void confirmWash(booking.id, "Quick wash", 60)}
-                                            className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
-                                          >
-                                            {t("quickWash")} · 60 min
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => void confirmWash(booking.id, "Normal wash", 120)}
-                                            className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200"
-                                          >
-                                            {t("normalWash")} · 120 min
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => void confirmWash(booking.id, "", 0)}
-                                            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
-                                          >
-                                            {t("confirmWithoutMode")}
-                                          </button>
-                                        </div>
+                                        {programs.length > 0 && (
+                                          <div className="space-y-1.5">
+                                            <div className="text-xs font-bold text-slate-500 dark:text-gray-400">{t("confirmSelectProgram")}</div>
+                                            {booking.selected_program_name && (
+                                              <div className="text-xs font-semibold text-slate-600 dark:text-gray-300">
+                                                {t("confirmOriginalProgram")}: <span className="text-blue-700 dark:text-blue-300">{booking.selected_program_name}{booking.selected_program_duration_minutes ? ` · ${booking.selected_program_duration_minutes} min` : ""}</span>
+                                              </div>
+                                            )}
+                                            <div className="text-xs text-slate-400 dark:text-gray-500">{t("confirmProgramHint")}</div>
+                                            <div className="flex flex-wrap gap-1.5 pt-1">
+                                              {programs.map(prog => {
+                                                const fits = prog.duration_minutes <= slotMinutes;
+                                                const isSelected = (selectedProgramName || programs[0]?.name) === prog.name;
+                                                return (
+                                                  <button
+                                                    key={prog.name}
+                                                    type="button"
+                                                    disabled={!fits}
+                                                    onClick={() => fits && setConfirmProgramSelection(prev => ({ ...prev, [booking.id]: prog.name }))}
+                                                    className={`rounded-md border px-3 py-1.5 text-xs font-bold transition ${
+                                                      !fits
+                                                        ? "cursor-not-allowed border-slate-200 bg-white text-slate-300 line-through dark:border-gray-700 dark:bg-gray-900 dark:text-gray-600"
+                                                        : isSelected
+                                                        ? "border-blue-500 bg-blue-600 text-white dark:border-blue-400"
+                                                        : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700"
+                                                    }`}
+                                                  >
+                                                    {prog.name} · {prog.duration_minutes} min
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => void confirmWash(
+                                            booking.id,
+                                            selectedProgram?.name || "",
+                                            selectedProgram?.duration_minutes || 0
+                                          )}
+                                          className="h-9 w-full rounded-md bg-blue-600 text-xs font-bold text-white transition hover:bg-blue-700"
+                                        >
+                                          {t("confirmBooking")}
+                                        </button>
                                       </div>
                                     ) : (
                                       <div className="text-sm font-semibold text-red-600 dark:text-red-300">

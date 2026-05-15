@@ -149,6 +149,7 @@ class BookingSerializer(serializers.ModelSerializer):
     user = UserInfoSerializer(read_only=True)
     machine_number = serializers.IntegerField(source="machine.number", read_only=True)
     machine_model = serializers.CharField(source="machine.model_name", read_only=True)
+    machine_programs = WashProgramSerializer(source="machine.programs", many=True, read_only=True)
     zone_name = serializers.CharField(source="machine.zone.name", read_only=True)
     zone_description = serializers.CharField(source="machine.zone.description", read_only=True)
     territory_name = serializers.CharField(source="machine.zone.territory.name", read_only=True)
@@ -163,6 +164,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "machine",
             "machine_number",
             "machine_model",
+            "machine_programs",
             "zone_name",
             "zone_description",
             "territory_name",
