@@ -10,6 +10,8 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db.models import Count, Max, Q
 from datetime import timedelta
 
+from .tasks import auto_cancel_unconfirmed_booking
+
 from .models import (
     Territory,
     TerritoryAccess,
@@ -427,6 +429,11 @@ class BookingListCreateView(APIView):
                 message=f"Pralka #{booking.machine.number}: slot {format_booking_time_for_user(booking, booking.start_time)}–{format_booking_time_for_user(booking, booking.end_time)}",
             )
 
+        # Celery cancels the booking if user doesn't confirm within 15 minutes of start
+        auto_cancel_unconfirmed_booking.apply_async(
+            args=[booking.id],
+            eta=booking.start_time + timedelta(minutes=15),
+        )
         return Response(BookingSerializer(booking).data, status=status.HTTP_201_CREATED)
 
     def get(self, request):
@@ -579,36 +586,11 @@ def create_booking_notification(user, booking, notification_type: str, title: st
 def ensure_booking_time_notifications(user):
     now = timezone.now()
     soon_until = now + timedelta(minutes=30)
-    active_bookings = Booking.objects.select_related(
-        "machine__zone__territory"
-    ).filter(user=user, status=Booking.STATUS_ACTIVE)
+    active_bookings = Booking.objects.select_related("machine").filter(
+        user=user, status=Booking.STATUS_ACTIVE
+    )
 
     for booking in active_bookings:
-        # Auto-cancel no-show (replaces Celery task — runs on every poll)
-        if booking.confirmed_at is None and booking.start_time <= now:
-            deadline_minutes = 45 if booking.confirmation_extended else 15
-            cancel_deadline = booking.start_time + timedelta(minutes=deadline_minutes)
-            if now > cancel_deadline:
-                territory = booking.machine.zone.territory
-                cancel_booking_with_history(
-                    booking=booking,
-                    changed_by=None,
-                    note="no_show",
-                    notification_type=UserNotification.TYPE_BOOKING_CANCELLED,
-                    title="Rezerwacja anulowana automatycznie",
-                    message=(
-                        f"Pralka #{booking.machine.number} ({territory.name}): "
-                        f"rezerwacja anulowana — nie potwierdzono przybycia w ciągu {deadline_minutes} minut."
-                    ),
-                )
-                access, _ = TerritoryAccess.objects.get_or_create(
-                    user=booking.user, territory=territory
-                )
-                access.no_show_count += 1
-                access.penalty_until = now + timedelta(days=3)
-                access.save(update_fields=["no_show_count", "penalty_until"])
-                continue
-
         if now <= booking.start_time <= soon_until:
             create_booking_notification(
                 user=user,
