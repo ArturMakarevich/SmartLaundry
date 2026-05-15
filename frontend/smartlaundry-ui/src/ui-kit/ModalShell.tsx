@@ -15,6 +15,24 @@ export function ModalShell({ open, onClose, children, panelClassName, size = "md
 
   useEffect(() => {
     if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") {
+        setTimeout(() => {
+          target.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 320);
+      }
+    };
+
+    panel.addEventListener("focusin", handleFocusIn);
+    return () => panel.removeEventListener("focusin", handleFocusIn);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
 
     const lockedScrollX = window.scrollX;
     const lockedScrollY = window.scrollY;
