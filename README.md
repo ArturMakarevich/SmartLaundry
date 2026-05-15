@@ -252,6 +252,19 @@ cd infra && docker compose down
 
 Verification and password-reset codes are **printed to the Django terminal** by default (console email backend). No SMTP server is needed for local development.
 
+### Seed demo data
+
+To populate the database with 10 sample territories, machines, bookings and problem reports:
+
+```bash
+python manage.py seed_demo
+
+# Reset and recreate everything from scratch:
+python manage.py seed_demo --clear
+```
+
+Works against any database, including Railway (pass `DATABASE_URL` as an env variable).
+
 ---
 
 ## 7. Deploy to a server
