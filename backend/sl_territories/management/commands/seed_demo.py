@@ -13,6 +13,9 @@ from sl_territories.models import (
 
 User = get_user_model()
 
+TEST_USER_COUNT = 50
+USERS_PER_TERRITORY = 5
+
 TERRITORY_DATA = [
     ("City Tower A", ["Floor 1", "Floor 2"], [4, 3]),
     ("City Tower B", ["Floor 1", "Floor 2", "Floor 3"], [3, 3, 2]),
@@ -70,7 +73,7 @@ def make_code():
 
 
 class Command(BaseCommand):
-    help = "Seed demo territories, machines, bookings and problem reports"
+    help = "Seed demo territories, 50 test users (test001–test050@gmail.com / test), bookings and problem reports"
 
     def add_arguments(self, parser):
         parser.add_argument("--clear", action="store_true", help="Delete all demo territories first")
@@ -78,7 +81,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         now = timezone.now()
 
-        # Pick admin/superadmin as creator
         admin = User.objects.filter(is_staff=True).order_by("id").first()
         if not admin:
             admin = User.objects.filter(is_active=True).order_by("id").first()
@@ -86,14 +88,13 @@ class Command(BaseCommand):
             self.stderr.write("No users found. Register at least one user first.")
             return
 
-        users = list(User.objects.filter(is_active=True).order_by("id"))
-        regular_users = [u for u in users if not u.is_staff] or users
+        demo_names = [name for name, _, _ in TERRITORY_DATA]
 
         if options["clear"]:
-            demo_names = [name for name, _, _ in TERRITORY_DATA]
             deleted, _ = Territory.objects.filter(name__in=demo_names).delete()
             self.stdout.write(f"Cleared {deleted} demo territories")
 
+        # ---- Ensure demo territories exist ----
         created_territories = []
 
         for territory_name, zone_names, machines_per_zone in TERRITORY_DATA:
@@ -106,10 +107,8 @@ class Command(BaseCommand):
             else:
                 self.stdout.write(f"  ~ Territory exists: {territory_name}")
 
-            # Assign admin
             TerritoryAdminAssignment.objects.get_or_create(user=admin, territory=territory)
 
-            # Zones and machines
             all_machines = []
             for order, (zone_name, machine_count) in enumerate(zip(zone_names, machines_per_zone)):
                 zone, _ = Zone.objects.get_or_create(
@@ -135,11 +134,6 @@ class Command(BaseCommand):
                             )
                     all_machines.append(machine)
 
-            # Grant access to all regular users
-            for user in regular_users:
-                TerritoryAccess.objects.get_or_create(user=user, territory=territory)
-
-            # Active invite code
             if not InviteCode.objects.filter(territory=territory, is_active=True, expires_at__gt=now).exists():
                 invite_alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
                 invite_code = get_random_string(length=6, allowed_chars=invite_alphabet)
@@ -151,64 +145,129 @@ class Command(BaseCommand):
                     is_active=True,
                 )
 
-            available_machines = [m for m in all_machines if m.status == "available"]
-            created_territories.append((territory, available_machines))
+            created_territories.append((territory, all_machines))
+
+        # ---- Delete ALL old bookings for demo territories ----
+        demo_ids = [t.id for t, _ in created_territories]
+        deleted_bookings, _ = Booking.objects.filter(
+            machine__zone__territory_id__in=demo_ids
+        ).delete()
+        self.stdout.write(f"Deleted {deleted_bookings} old bookings from demo territories")
+
+        # Remove TerritoryAccess for non-admin, non-test users in demo territories
+        import re
+        test_email_pattern = re.compile(r'^test\d+@gmail\.com$')
+        old_access_deleted, _ = TerritoryAccess.objects.filter(
+            territory_id__in=demo_ids,
+        ).exclude(
+            user__email__regex=r'^test\d+@gmail\.com$'
+        ).exclude(
+            user__is_staff=True
+        ).delete()
+        self.stdout.write(f"Removed {old_access_deleted} old TerritoryAccess entries")
+
+        # ---- Create 50 test users ----
+        self.stdout.write("Creating test users...")
+        test_users = []
+        for i in range(1, TEST_USER_COUNT + 1):
+            email = f"test{i:03d}@gmail.com"
+            user, created = User.objects.get_or_create(
+                email=email,
+                defaults={"is_active": True},
+            )
+            if created or not user.has_usable_password():
+                user.set_password("test")
+                user.save(update_fields=["password"])
+            if created:
+                self.stdout.write(f"  + User: {email}")
+            test_users.append(user)
+
+        # ---- Assign 5 users per territory ----
+        self.stdout.write("Assigning users to territories...")
+        territory_users: list[tuple] = []
+        for idx, (territory, machines) in enumerate(created_territories):
+            start = (idx * USERS_PER_TERRITORY) % TEST_USER_COUNT
+            assigned = [test_users[(start + j) % TEST_USER_COUNT] for j in range(USERS_PER_TERRITORY)]
+            for user in assigned:
+                TerritoryAccess.objects.get_or_create(user=user, territory=territory)
+            territory_users.append((territory, machines, assigned))
 
         # ---- Bookings ----
         self.stdout.write("Creating bookings...")
+        used_slots: set[tuple[int, int]] = set()
 
-        for territory, machines in created_territories:
-            if not machines or not regular_users:
+        for territory, machines, users in territory_users:
+            available_machines = [m for m in machines if m.status == "available"]
+            if not available_machines:
                 continue
 
-            # Past completed bookings (30 days back)
-            for days_ago in range(1, 31):
-                day_start = now - timedelta(days=days_ago)
-                day_start = day_start.replace(hour=7, minute=0, second=0, microsecond=0)
-                slots_per_day = random.randint(2, min(6, len(machines) * 2))
-                for _ in range(slots_per_day):
-                    machine = random.choice(machines)
-                    user = random.choice(regular_users)
-                    slot_hour = random.randint(7, 20)
-                    start = day_start.replace(hour=slot_hour, minute=0)
-                    end = start + timedelta(hours=2)
-                    if not Booking.objects.filter(machine=machine, start_time=start).exists():
-                        Booking.objects.create(
-                            machine=machine,
-                            user=user,
-                            start_time=start,
-                            end_time=end,
-                            status="completed",
-                            confirmed_at=start - timedelta(minutes=10),
-                            wash_started_at=start + timedelta(minutes=5),
-                            estimated_wash_end_at=start + timedelta(hours=1, minutes=35),
-                        )
+            for user in users:
+                # Active bookings: 1–3 within next 3 days
+                active_count = random.randint(1, 3)
+                created_active = 0
+                attempts = 0
+                while created_active < active_count and attempts < 50:
+                    attempts += 1
+                    machine = random.choice(available_machines)
+                    days_ahead = random.randint(0, 2)
+                    day = now + timedelta(days=days_ahead)
+                    min_hour = int(now.hour) + 1 if days_ahead == 0 else 8
+                    if min_hour > 20:
+                        continue
+                    slot_hour = random.randint(min_hour, 20)
+                    start_dt = day.replace(hour=slot_hour, minute=0, second=0, microsecond=0)
+                    slot_key = (machine.id, int(start_dt.timestamp() // 3600))
+                    if slot_key in used_slots:
+                        continue
+                    if start_dt <= now:
+                        continue
+                    end_dt = start_dt + timedelta(hours=2)
+                    used_slots.add(slot_key)
+                    Booking.objects.create(
+                        machine=machine,
+                        user=user,
+                        start_time=start_dt,
+                        end_time=end_dt,
+                        status="active",
+                    )
+                    created_active += 1
 
-            # Active bookings (today and next 3 days)
-            for days_ahead in range(0, 4):
-                day = now + timedelta(days=days_ahead)
-                for machine in random.sample(machines, min(3, len(machines))):
-                    user = random.choice(regular_users)
-                    slot_hour = random.randint(int(now.hour) + 1 if days_ahead == 0 else 8, 20)
-                    start = day.replace(hour=slot_hour, minute=0, second=0, microsecond=0)
-                    end = start + timedelta(hours=2)
-                    if start > now and not Booking.objects.filter(machine=machine, start_time=start).exists():
-                        Booking.objects.create(
-                            machine=machine,
-                            user=user,
-                            start_time=start,
-                            end_time=end,
-                            status="active",
-                        )
+                # Archived (completed) bookings: 5–10 in past 30 days
+                archive_count = random.randint(5, 10)
+                created_archive = 0
+                attempts = 0
+                while created_archive < archive_count and attempts < 100:
+                    attempts += 1
+                    machine = random.choice(available_machines)
+                    days_ago = random.randint(1, 30)
+                    day = now - timedelta(days=days_ago)
+                    slot_hour = random.randint(7, 20)
+                    start_dt = day.replace(hour=slot_hour, minute=0, second=0, microsecond=0)
+                    slot_key = (machine.id, int(start_dt.timestamp() // 3600))
+                    if slot_key in used_slots:
+                        continue
+                    end_dt = start_dt + timedelta(hours=2)
+                    used_slots.add(slot_key)
+                    Booking.objects.create(
+                        machine=machine,
+                        user=user,
+                        start_time=start_dt,
+                        end_time=end_dt,
+                        status="completed",
+                        confirmed_at=start_dt - timedelta(minutes=10),
+                        wash_started_at=start_dt + timedelta(minutes=5),
+                        estimated_wash_end_at=start_dt + timedelta(hours=1, minutes=35),
+                    )
+                    created_archive += 1
 
         # ---- Problem reports ----
         self.stdout.write("Creating problem reports...")
-        for territory, machines in created_territories:
-            if not machines or not regular_users:
+        for territory, machines, users in territory_users:
+            if not machines or not users:
                 continue
             for _ in range(random.randint(1, 3)):
                 machine = random.choice(machines)
-                reporter = random.choice(regular_users)
+                reporter = random.choice(users)
                 pr_type = random.choice(["machine_broken", "water_leak", "noise", "other"])
                 status = random.choice(["open", "open", "in_progress", "resolved"])
                 resolved_at = now - timedelta(days=random.randint(1, 5)) if status == "resolved" else None
@@ -225,5 +284,5 @@ class Command(BaseCommand):
                 )
 
         self.stdout.write(self.style.SUCCESS(
-            f"\nDone! {len(created_territories)} territories, users assigned, bookings and reports created."
+            f"\nDone! {len(created_territories)} territories, {TEST_USER_COUNT} test users, bookings and reports created."
         ))
