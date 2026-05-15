@@ -218,6 +218,7 @@ class Booking(models.Model):
     confirmed_at = models.DateTimeField(null=True, blank=True)
     wash_started_at = models.DateTimeField(null=True, blank=True)
     estimated_wash_end_at = models.DateTimeField(null=True, blank=True)
+    confirmation_extended = models.BooleanField(default=False)
     status = models.CharField(
         max_length=16, choices=STATUS_CHOICES, default=STATUS_ACTIVE
     )

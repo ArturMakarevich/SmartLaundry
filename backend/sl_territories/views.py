@@ -494,9 +494,8 @@ class BookingDetailView(APIView):
             if booking.status != Booking.STATUS_ACTIVE:
                 return Response({"detail": "Only active bookings can be confirmed"}, status=status.HTTP_400_BAD_REQUEST)
             now = timezone.now()
-            # Okno potwierdzenia: od startu rezerwacji do +15 minut.
-            # Po tym czasie Celery automatycznie anuluje niezatwierdzoną rezerwację.
-            confirmation_deadline = booking.start_time + timedelta(minutes=15)
+            deadline_minutes = 45 if booking.confirmation_extended else 15
+            confirmation_deadline = booking.start_time + timedelta(minutes=deadline_minutes)
             if now < booking.start_time:
                 return Response({"detail": "Confirmation opens when the booking starts"}, status=status.HTTP_400_BAD_REQUEST)
             if now > confirmation_deadline:
@@ -528,6 +527,32 @@ class BookingDetailView(APIView):
                 title="Rezerwacja potwierdzona",
                 message=f"Pralka #{booking.machine.number}: {booking.selected_program_name or 'program nie wybrany'}",
             )
+        elif action == "report_occupied":
+            if booking.status != Booking.STATUS_ACTIVE:
+                return Response({"detail": "Only active bookings"}, status=status.HTTP_400_BAD_REQUEST)
+            now = timezone.now()
+            deadline_minutes = 45 if booking.confirmation_extended else 15
+            confirmation_deadline = booking.start_time + timedelta(minutes=deadline_minutes)
+            if now < booking.start_time or now > confirmation_deadline:
+                return Response({"detail": "Not in confirmation window"}, status=status.HTTP_400_BAD_REQUEST)
+            choice = request.data.get("choice")
+            if choice == "extend":
+                booking.confirmation_extended = True
+                booking.save(update_fields=["confirmation_extended"])
+                return Response(BookingSerializer(booking, context={"request": request}).data, status=status.HTTP_200_OK)
+            elif choice == "rebook":
+                machine_number = booking.machine.number
+                cancel_booking_with_history(
+                    booking=booking,
+                    changed_by=request.user,
+                    note="occupied_by_other",
+                    notification_type=UserNotification.TYPE_BOOKING_CANCELLED,
+                    title="Rezerwacja anulowana — pralka zajęta",
+                    message=f"Pralka #{machine_number}: anulowano, ponieważ pralka była zajęta przez inną osobę.",
+                )
+                return Response({"cancelled": True, "machine_number": machine_number}, status=status.HTTP_200_OK)
+            else:
+                return Response({"detail": "Invalid choice: extend or rebook required"}, status=status.HTTP_400_BAD_REQUEST)
         else:
             return Response({"detail": "Unsupported action"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(BookingSerializer(booking, context={"request": request}).data, status=status.HTTP_200_OK)

@@ -58,6 +58,7 @@ type UserBooking = {
   wash_started_at?: string | null;
   estimated_wash_end_at?: string | null;
   machine_programs?: { id: number; name: string; duration_minutes: number }[];
+  confirmation_extended?: boolean;
   user?: { id: number; email: string; role?: UserRole };
 };
 
@@ -199,6 +200,7 @@ export function AppRoot() {
   const [leaveTerritoryConfirm, setLeaveTerritoryConfirm] = useState<{ id: number; name: string } | null>(null);
   const [leavingTerritoryId, setLeavingTerritoryId] = useState<number | null>(null);
   const [confirmProgramSelection, setConfirmProgramSelection] = useState<Record<number, string>>({});
+  const [occupiedBookingId, setOccupiedBookingId] = useState<number | null>(null);
   const [, setNavigationTick] = useState(0);
   const { t, lang } = useI18n();
   const { theme } = useTheme();
@@ -833,6 +835,28 @@ const generateAdminInviteCode = async (territoryId: string) => {
       const updated = response.data as UserBooking;
       setBookings(prev => prev.map(booking => (booking.id === bookingId ? updated : booking)));
       await loadNotifications(showAllNotifications ? 0 : 3);
+    } catch {
+      setBookingsError(t("couldNotConfirmBooking"));
+    }
+  };
+
+  const reportOccupied = async (bookingId: number, choice: "extend" | "rebook") => {
+    try {
+      setBookingsError(null);
+      const response = await apiClient.patch(`territories/bookings/${bookingId}/`, {
+        action: "report_occupied",
+        choice,
+      });
+      setOccupiedBookingId(null);
+      if (choice === "extend") {
+        const updated = response.data as UserBooking;
+        setBookings(prev => prev.map(b => b.id === bookingId ? updated : b));
+      } else {
+        const machineNum = response.data?.machine_number;
+        setBookings(prev => prev.filter(b => b.id !== bookingId));
+        setAppNotice(t("occupiedRebookNotice").replace("{num}", String(machineNum || "")));
+        navigateTo("/");
+      }
     } catch {
       setBookingsError(t("couldNotConfirmBooking"));
     }
@@ -1728,7 +1752,8 @@ const generateAdminInviteCode = async (territoryId: string) => {
                               </div>
                               {!isSuperAdmin && (() => {
                                 const start = new Date(booking.start_time);
-                                const confirmationDeadline = new Date(start.getTime() + 15 * 60000);
+                                const deadlineMs = booking.confirmation_extended ? 45 * 60000 : 15 * 60000;
+                                const confirmationDeadline = new Date(start.getTime() + deadlineMs);
                                 const canConfirm = now >= start && now <= confirmationDeadline && !booking.confirmed_at;
                                 const beforeStart = now < start;
                                 const remainingMs = Math.max(0, confirmationDeadline.getTime() - now.getTime());
@@ -1825,17 +1850,55 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                             </div>
                                           </div>
                                         )}
-                                        <button
-                                          type="button"
-                                          onClick={() => void confirmWash(
-                                            booking.id,
-                                            selectedProgram?.name || "",
-                                            selectedProgram?.duration_minutes || 0
-                                          )}
-                                          className="h-9 w-full rounded-md bg-blue-600 text-xs font-bold text-white transition hover:bg-blue-700"
-                                        >
-                                          {t("confirmBooking")}
-                                        </button>
+                                        {occupiedBookingId === booking.id ? (
+                                          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 dark:border-orange-900/60 dark:bg-orange-950/20">
+                                            <div className="mb-2 text-xs font-bold text-orange-700 dark:text-orange-300">{t("occupiedTitle")}</div>
+                                            <div className="flex flex-col gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => void reportOccupied(booking.id, "extend")}
+                                                className="rounded-md border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 transition hover:bg-blue-50 dark:border-blue-800 dark:bg-gray-900 dark:text-blue-300"
+                                              >
+                                                {t("occupiedExtend")}
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => void reportOccupied(booking.id, "rebook")}
+                                                className="rounded-md border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-800 dark:bg-gray-900 dark:text-emerald-300"
+                                              >
+                                                {t("occupiedRebook")}
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => setOccupiedBookingId(null)}
+                                                className="text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                              >
+                                                {t("back")}
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <>
+                                            <button
+                                              type="button"
+                                              onClick={() => void confirmWash(
+                                                booking.id,
+                                                selectedProgram?.name || "",
+                                                selectedProgram?.duration_minutes || 0
+                                              )}
+                                              className="h-9 w-full rounded-md bg-blue-600 text-xs font-bold text-white transition hover:bg-blue-700"
+                                            >
+                                              {t("confirmBooking")}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => setOccupiedBookingId(booking.id)}
+                                              className="w-full text-center text-xs font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+                                            >
+                                              {t("occupiedButton")}
+                                            </button>
+                                          </>
+                                        )}
                                       </div>
                                     ) : (
                                       <div className="text-sm font-semibold text-red-600 dark:text-red-300">

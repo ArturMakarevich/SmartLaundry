@@ -179,6 +179,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "confirmed_at",
             "wash_started_at",
             "estimated_wash_end_at",
+            "confirmation_extended",
         )
         read_only_fields = (
             "user",
@@ -187,6 +188,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "confirmed_at",
             "wash_started_at",
             "estimated_wash_end_at",
+            "confirmation_extended",
         )
 
     # Pełna walidacja rezerwacji: dostęp, blokada, wzorzec slotów, limit 3 rezerwacji,
