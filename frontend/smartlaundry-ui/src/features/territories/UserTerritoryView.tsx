@@ -616,9 +616,10 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     return slots;
   };
 
-  // Sprawdza czy program (np. 90 min) zmieści się w danym slocie lub kilku sąsiednich wolnych slotach.
-  // Krótkie programy (≤60 min) → tylko krótkie sloty; długie (≤120) → tylko długie;
-  // bardzo długie (>120) → łączy kolejne wolne sloty aż do pokrycia czasu programu
+  // Checks if a program fits in the given slot or consecutive free slots.
+  // Short programs (≤60 min) → 60-min slot only; medium (≤120) → 120-min slot only;
+  // long (>120) → combines consecutive free slots, but a SHORT starting slot is only
+  // allowed when slot+next already covers the program (prevents wasteful 1+1+2 patterns).
   const getCoveredSlotsForProgram = (slots: BookingSlot[], slot: BookingSlot, durationMinutes: number) => {
     if (!durationMinutes || slot.state !== "free") return null;
     if (durationMinutes <= SHORT_SLOT_MINUTES) {
@@ -629,6 +630,12 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     }
     const slotIndex = slots.findIndex(item => item.start.getTime() === slot.start.getTime());
     if (slotIndex < 0) return null;
+    // Starting from a short slot: only allow if this slot + the next one already covers
+    // the program (avoids 1+1+2 h patterns — prefer 1+2 or 2+2 instead)
+    if (slot.duration === SHORT_SLOT_MINUTES) {
+      const next = slots[slotIndex + 1];
+      if (!next || next.state !== "free" || slot.duration + next.duration < durationMinutes) return null;
+    }
     const coveredSlots: BookingSlot[] = [];
     let coveredMinutes = 0;
     let expectedStart = slot.start.getTime();
