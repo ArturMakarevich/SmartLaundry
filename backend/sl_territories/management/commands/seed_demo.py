@@ -147,7 +147,7 @@ class Command(BaseCommand):
                     territory=territory,
                     code=invite_code,
                     created_by=admin,
-                    expires_at=now + timedelta(days=30),
+                    expires_at=now + timedelta(hours=12),
                     is_active=True,
                 )
 

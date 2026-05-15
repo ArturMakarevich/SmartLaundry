@@ -20,6 +20,16 @@ def auto_cancel_unconfirmed_booking(booking_id: int) -> None:
     if booking.confirmed_at is not None:
         return
 
+    # If user extended the confirmation window, give them 30 more minutes
+    if booking.confirmation_extended:
+        extended_deadline = booking.start_time + timedelta(minutes=45)
+        if timezone.now() < extended_deadline:
+            auto_cancel_unconfirmed_booking.apply_async(
+                args=[booking_id],
+                eta=extended_deadline,
+            )
+            return
+
     booking.status = Booking.STATUS_CANCELLED
     booking.save(update_fields=["status"])
 
