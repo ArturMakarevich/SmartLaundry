@@ -248,19 +248,6 @@ class BookingSerializer(serializers.ModelSerializer):
                     f"Booking limit reached. You already have {existing_count} active bookings "
                     f"(limit: {effective_limit})."
                 )
-            local_day_start = local_start.replace(hour=0, minute=0, second=0, microsecond=0)
-            local_day_end = local_day_start + timedelta(days=1)
-            same_machine_today = Booking.objects.filter(
-                user=request.user,
-                machine=machine,
-                status=Booking.STATUS_ACTIVE,
-                start_time__gte=local_day_start,
-                start_time__lt=local_day_end,
-            ).exists()
-            if same_machine_today:
-                raise serializers.ValidationError(
-                    "You already have a booking for this machine on that day"
-                )
         if self._overlap_exists(machine, start, end):
             raise serializers.ValidationError("Slot overlaps with existing booking")
         if start < timezone.now():
