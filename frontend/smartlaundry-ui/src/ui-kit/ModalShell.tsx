@@ -13,30 +13,35 @@ type ModalShellProps = {
 export function ModalShell({ open, onClose, children, panelClassName, size = "md", verticalAlign = "top" }: ModalShellProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
 
+  // When iOS keyboard opens, visualViewport shrinks but the panel's maxHeight (dvh) doesn't
+  // update reliably. We manually resize the panel and scroll the focused input into view.
   useEffect(() => {
     if (!open) return;
     const panel = panelRef.current;
-    if (!panel) return;
+    const vv = window.visualViewport;
+    if (!panel || !vv) return;
 
-    const scrollToVisible = (target: HTMLElement) => {
-      const vvHeight = window.visualViewport?.height ?? window.innerHeight;
-      const rect = target.getBoundingClientRect();
-      const overshoot = rect.bottom - vvHeight + 32;
-      if (overshoot > 0) {
-        panel.scrollTop += overshoot;
+    const syncHeight = () => {
+      panel.style.maxHeight = `${vv.height - 32}px`;
+
+      const active = document.activeElement as HTMLElement | null;
+      if (active && panel.contains(active) &&
+          (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) {
+        const rect = active.getBoundingClientRect();
+        const overshoot = rect.bottom - vv.height + 40;
+        if (overshoot > 0) {
+          panel.scrollTop += overshoot;
+        }
       }
     };
 
-    const handleFocusIn = (e: FocusEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA" && target.tagName !== "SELECT") return;
-      // Two passes: fast (for already-open keyboard) and delayed (after keyboard animation)
-      setTimeout(() => scrollToVisible(target), 100);
-      setTimeout(() => scrollToVisible(target), 450);
+    vv.addEventListener("resize", syncHeight);
+    vv.addEventListener("scroll", syncHeight);
+    return () => {
+      vv.removeEventListener("resize", syncHeight);
+      vv.removeEventListener("scroll", syncHeight);
+      panel.style.maxHeight = "";
     };
-
-    panel.addEventListener("focusin", handleFocusIn);
-    return () => panel.removeEventListener("focusin", handleFocusIn);
   }, [open]);
 
   useEffect(() => {
