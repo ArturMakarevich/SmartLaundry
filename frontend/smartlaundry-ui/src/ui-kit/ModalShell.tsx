@@ -18,13 +18,21 @@ export function ModalShell({ open, onClose, children, panelClassName, size = "md
     const panel = panelRef.current;
     if (!panel) return;
 
+    const scrollToVisible = (target: HTMLElement) => {
+      const vvHeight = window.visualViewport?.height ?? window.innerHeight;
+      const rect = target.getBoundingClientRect();
+      const overshoot = rect.bottom - vvHeight + 32;
+      if (overshoot > 0) {
+        panel.scrollTop += overshoot;
+      }
+    };
+
     const handleFocusIn = (e: FocusEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") {
-        setTimeout(() => {
-          target.scrollIntoView({ behavior: "smooth", block: "center" });
-        }, 320);
-      }
+      if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA" && target.tagName !== "SELECT") return;
+      // Two passes: fast (for already-open keyboard) and delayed (after keyboard animation)
+      setTimeout(() => scrollToVisible(target), 100);
+      setTimeout(() => scrollToVisible(target), 450);
     };
 
     panel.addEventListener("focusin", handleFocusIn);
