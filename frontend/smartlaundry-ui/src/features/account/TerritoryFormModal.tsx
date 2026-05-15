@@ -218,6 +218,40 @@ const ContinueButton = ({
   );
 };
 
+function NumericInput({
+  value,
+  min = 1,
+  onChange,
+  className,
+}: {
+  value: number;
+  min?: number;
+  onChange: (v: number) => void;
+  className?: string;
+}) {
+  const [raw, setRaw] = useState(String(value));
+  useEffect(() => { setRaw(String(value)); }, [value]);
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={raw}
+      className={className}
+      onChange={e => {
+        const filtered = e.target.value.replace(/[^0-9]/g, "");
+        setRaw(filtered);
+        if (filtered !== "") onChange(Math.max(min, Number(filtered)));
+      }}
+      onBlur={() => {
+        const clamped = Math.max(min, Number(raw) || min);
+        setRaw(String(clamped));
+        onChange(clamped);
+      }}
+    />
+  );
+}
+
 export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, renderMode = "modal" }: TerritoryFormModalProps) {
   const { t } = useI18n();
   const [name, setName] = useState("");
@@ -460,12 +494,10 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">
                 {t("territoryZonesLabel")}
               </label>
-              <input
-                type="number"
-                min={1}
+              <NumericInput
                 value={zonesCount}
-                onChange={e => {
-                  const val = Math.max(1, Number(e.target.value) || 1);
+                min={1}
+                onChange={val => {
                   setZonesCount(val);
                   const nextPerZone = [...machinesPerZone];
                   if (val > machinesPerZone.length) {
@@ -480,12 +512,13 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
               />
             </div>
             <div className="space-y-2">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">
-                {t("adminZoneNamesMachineCounts")}
-              </label>
+              <div className="grid grid-cols-[minmax(0,1fr)_88px] gap-2 px-0.5">
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-200">{t("territoryZoneLabel")}</span>
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-200 text-center">{t("territoryMachinesPerZoneLabel")}</span>
+              </div>
               <div className="grid gap-2 md:grid-cols-2">
                 {Array.from({ length: zonesCount }).map((_, idx) => (
-                  <div key={idx} className="grid grid-cols-[minmax(0,1fr)_88px] items-center gap-2 text-xs">
+                  <div key={idx} className="grid grid-cols-[minmax(0,1fr)_88px] items-center gap-2">
                     <input
                       value={zoneDescriptions[idx] || ""}
                       onChange={e => {
@@ -493,15 +526,14 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
                         next[idx] = e.target.value;
                         setZoneDescriptions(next);
                       }}
-                      className="min-w-0 rounded-lg border border-gray-300 bg-white px-2 py-2 dark:border-gray-600 dark:bg-gray-900"
-                      placeholder={`${t("territoryZoneLabel")} ${idx + 1} name`}
+                      className="min-w-0 rounded-lg border border-gray-300 bg-white px-2 py-2 text-base dark:border-gray-600 dark:bg-gray-900"
+                      placeholder={`${t("territoryZoneLabel")} ${idx + 1}`}
                     />
-                    <input
-                      type="number"
-                      min={1}
+                    <NumericInput
                       value={machinesPerZone[idx] ?? 1}
-                      onChange={e => updateMachinesPerZone(idx, Math.max(1, Number(e.target.value) || 1))}
-                      className="w-full rounded-lg border border-gray-300 bg-white px-2 py-2 dark:border-gray-600 dark:bg-gray-900"
+                      min={1}
+                      onChange={val => updateMachinesPerZone(idx, val)}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-2 py-2 text-base text-center dark:border-gray-600 dark:bg-gray-900"
                     />
                   </div>
                 ))}
