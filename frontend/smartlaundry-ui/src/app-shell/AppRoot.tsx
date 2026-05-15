@@ -1761,8 +1761,14 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                 const remainingSeconds = Math.floor((remainingMs % 60000) / 1000);
                                 const slotMinutes = Math.round((new Date(booking.end_time).getTime() - start.getTime()) / 60000);
                                 const programs = booking.machine_programs || [];
-                                const selectedProgramName = confirmProgramSelection[booking.id] ?? booking.selected_program_name ?? "";
-                                const selectedProgram = programs.find(p => p.name === selectedProgramName) || programs[0] || null;
+                                const fittingPrograms = programs.filter(program => program.duration_minutes <= slotMinutes);
+                                const requestedProgramName = confirmProgramSelection[booking.id] ?? booking.selected_program_name ?? "";
+                                const requestedProgram = programs.find(program => program.name === requestedProgramName) || null;
+                                const selectedProgram =
+                                  requestedProgram && requestedProgram.duration_minutes <= slotMinutes
+                                    ? requestedProgram
+                                    : fittingPrograms[0] || null;
+                                const selectedProgramName = selectedProgram?.name || "";
 
                                 // Wash end: from server or computed as confirmed_at + program duration
                                 const washEndAt = booking.estimated_wash_end_at
@@ -1780,33 +1786,47 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                 return (
                                   <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-gray-800 dark:bg-gray-900">
                                     {booking.confirmed_at ? (
-                                      <div className="space-y-2">
-                                        <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                                          <CheckCircle2 size={15} />
-                                          {t("bookingConfirmedShort")}
-                                        </div>
-                                        {booking.selected_program_name && (
-                                          <div className="text-sm font-semibold text-slate-700 dark:text-gray-200">
-                                            {t("bookingModeLabel")}: <span className="text-blue-700 dark:text-blue-300">{booking.selected_program_name}{booking.selected_program_duration_minutes ? ` · ${booking.selected_program_duration_minutes} min` : ""}</span>
+                                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(190px,240px)] lg:items-stretch">
+                                        <div className="min-w-0 space-y-2">
+                                          <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                                            <CheckCircle2 size={15} />
+                                            {t("bookingConfirmedShort")}
                                           </div>
-                                        )}
+                                          {booking.selected_program_name && (
+                                            <div className="rounded-md border border-slate-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-950/50">
+                                              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-gray-500">
+                                                {t("bookingModeLabel")}
+                                              </div>
+                                              <div className="mt-0.5 truncate text-sm font-bold text-slate-800 dark:text-gray-100">
+                                                {booking.selected_program_name}
+                                                {booking.selected_program_duration_minutes ? (
+                                                  <span className="text-blue-700 dark:text-blue-300"> · {booking.selected_program_duration_minutes} min</span>
+                                                ) : null}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
                                         {washEndAt && !washDone && (
-                                          <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900/60 dark:bg-blue-950/30">
-                                            <div className="flex items-center justify-between">
-                                              <div className="text-xs font-semibold text-blue-600 dark:text-blue-300">{t("estimatedFinish")}</div>
-                                              <div className="font-mono text-lg font-bold text-blue-700 dark:text-blue-200">
+                                          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-900/60 dark:bg-blue-950/30">
+                                            <div className="flex items-center justify-between gap-3">
+                                              <div className="text-xs font-bold text-blue-600 dark:text-blue-300">{t("estimatedFinish")}</div>
+                                              <div className="font-mono text-base font-bold text-blue-700 dark:text-blue-200">
                                                 {`${String(washEndAt.getHours()).padStart(2, "0")}:${String(washEndAt.getMinutes()).padStart(2, "0")}`}
                                               </div>
                                             </div>
-                                            <div className="mt-1 flex items-center gap-1.5 text-xs text-blue-500 dark:text-blue-400">
-                                              <Timer size={12} className="shrink-0" />
-                                              <span className="font-mono font-semibold">{`${pad(washH)}:${pad(washM)}:${pad(washS)}`}</span>
-                                              <span>{t("washTimeRemaining")}</span>
+                                            <div className="mt-3 flex items-end justify-between gap-3">
+                                              <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-500 dark:text-blue-400">
+                                                <Timer size={13} className="shrink-0" />
+                                                <span>{t("washTimeRemaining")}</span>
+                                              </div>
+                                              <div className="font-mono text-3xl font-black leading-none text-blue-800 dark:text-blue-100">
+                                                {`${pad(washH)}:${pad(washM)}:${pad(washS)}`}
+                                              </div>
                                             </div>
                                           </div>
                                         )}
                                         {washDone && (
-                                          <div className="mt-2 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/30">
+                                          <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/30 lg:col-span-2">
                                             <CheckCircle2 size={15} className="shrink-0 text-emerald-600 dark:text-emerald-300" />
                                             <span className="text-xs font-bold text-emerald-700 dark:text-emerald-200">{t("washLikelyDone")}</span>
                                           </div>
@@ -1822,36 +1842,42 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                           {t("confirmWithin")} {String(remainingMinutes).padStart(2, "0")}:{String(remainingSeconds).padStart(2, "0")}
                                         </div>
                                         {programs.length > 0 && (
-                                          <div className="space-y-1.5">
-                                            <div className="text-xs font-bold text-slate-500 dark:text-gray-400">{t("confirmSelectProgram")}</div>
+                                          <div className="space-y-2">
                                             {booking.selected_program_name && (
                                               <div className="text-xs font-semibold text-slate-600 dark:text-gray-300">
                                                 {t("confirmOriginalProgram")}: <span className="text-blue-700 dark:text-blue-300">{booking.selected_program_name}{booking.selected_program_duration_minutes ? ` · ${booking.selected_program_duration_minutes} min` : ""}</span>
                                               </div>
                                             )}
-                                            <div className="text-xs text-slate-400 dark:text-gray-500">{t("confirmProgramHint")}</div>
-                                            <div className="flex flex-wrap gap-1.5 pt-1">
-                                              {programs.map(prog => {
-                                                const fits = prog.duration_minutes <= slotMinutes;
-                                                const isSelected = (selectedProgramName || programs[0]?.name) === prog.name;
-                                                return (
-                                                  <button
-                                                    key={prog.name}
-                                                    type="button"
-                                                    disabled={!fits}
-                                                    onClick={() => fits && setConfirmProgramSelection(prev => ({ ...prev, [booking.id]: prog.name }))}
-                                                    className={`rounded-md border px-3 py-1.5 text-xs font-bold transition ${
-                                                      !fits
-                                                        ? "cursor-not-allowed border-slate-200 bg-white text-slate-300 line-through dark:border-gray-700 dark:bg-gray-900 dark:text-gray-600"
-                                                        : isSelected
-                                                        ? "border-blue-500 bg-blue-600 text-white dark:border-blue-400"
-                                                        : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700"
-                                                    }`}
-                                                  >
-                                                    {prog.name} · {prog.duration_minutes} min
-                                                  </button>
-                                                );
-                                              })}
+                                            <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 dark:border-blue-900/60 dark:bg-blue-950/20">
+                                              <div className="text-[11px] font-bold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                                                {t("confirmSelectedProgram")}
+                                              </div>
+                                              <div className="mt-0.5 text-sm font-bold text-blue-800 dark:text-blue-100">
+                                                {selectedProgram
+                                                  ? `${selectedProgram.name} · ${selectedProgram.duration_minutes} min`
+                                                  : t("programNotSelected")}
+                                              </div>
+                                            </div>
+                                            <label className="block space-y-1.5">
+                                              <span className="text-xs font-bold text-slate-500 dark:text-gray-400">{t("confirmChangeProgram")}</span>
+                                              <select
+                                                value={selectedProgramName}
+                                                onChange={event => setConfirmProgramSelection(prev => ({ ...prev, [booking.id]: event.target.value }))}
+                                                className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-gray-700 dark:bg-gray-950 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-950"
+                                              >
+                                                {!selectedProgram && <option value="">{t("confirmSelectProgram")}</option>}
+                                                {programs.map(prog => {
+                                                  const fits = prog.duration_minutes <= slotMinutes;
+                                                  return (
+                                                    <option key={prog.name} value={prog.name} disabled={!fits}>
+                                                      {prog.name} · {prog.duration_minutes} min{fits ? "" : ` (${t("confirmProgramTooLong")})`}
+                                                    </option>
+                                                  );
+                                                })}
+                                              </select>
+                                            </label>
+                                            <div className="text-xs text-slate-400 dark:text-gray-500">
+                                              {t("confirmProgramHint")}
                                             </div>
                                           </div>
                                         )}
@@ -1891,7 +1917,8 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                                 selectedProgram?.name || "",
                                                 selectedProgram?.duration_minutes || 0
                                               )}
-                                              className="h-9 w-full rounded-md bg-blue-600 text-xs font-bold text-white transition hover:bg-blue-700"
+                                              disabled={programs.length > 0 && !selectedProgram}
+                                              className="h-9 w-full rounded-md bg-blue-600 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-gray-700"
                                             >
                                               {t("confirmBooking")}
                                             </button>
