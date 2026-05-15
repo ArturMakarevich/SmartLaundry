@@ -586,11 +586,35 @@ def create_booking_notification(user, booking, notification_type: str, title: st
 def ensure_booking_time_notifications(user):
     now = timezone.now()
     soon_until = now + timedelta(minutes=30)
-    active_bookings = Booking.objects.select_related("machine").filter(
-        user=user, status=Booking.STATUS_ACTIVE
-    )
+    active_bookings = Booking.objects.select_related(
+        "machine__zone__territory"
+    ).filter(user=user, status=Booking.STATUS_ACTIVE)
 
     for booking in active_bookings:
+        # Fallback no-show cancel: catches bookings whose Celery task was lost
+        if booking.confirmed_at is None and booking.start_time <= now:
+            deadline_minutes = 45 if booking.confirmation_extended else 15
+            if now > booking.start_time + timedelta(minutes=deadline_minutes):
+                territory = booking.machine.zone.territory
+                cancel_booking_with_history(
+                    booking=booking,
+                    changed_by=None,
+                    note="no_show",
+                    notification_type=UserNotification.TYPE_BOOKING_CANCELLED,
+                    title="Rezerwacja anulowana automatycznie",
+                    message=(
+                        f"Pralka #{booking.machine.number} ({territory.name}): "
+                        f"anulowano — nie potwierdzono przybycia w ciągu {deadline_minutes} minut."
+                    ),
+                )
+                access, _ = TerritoryAccess.objects.get_or_create(
+                    user=booking.user, territory=territory
+                )
+                access.no_show_count += 1
+                access.penalty_until = now + timedelta(days=3)
+                access.save(update_fields=["no_show_count", "penalty_until"])
+                continue
+
         if now <= booking.start_time <= soon_until:
             create_booking_notification(
                 user=user,
