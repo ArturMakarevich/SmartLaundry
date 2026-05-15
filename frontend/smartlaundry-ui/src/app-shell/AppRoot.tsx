@@ -1410,17 +1410,33 @@ const generateAdminInviteCode = async (territoryId: string) => {
               </div>
 
               <div className="grid gap-4 md:grid-cols-4">
-                {[
-                  [t("adminTerritoriesMenu"), adminTerritories.length],
-                  [t("adminReviewMachines"), adminMachines.length],
-                  [t("adminAllUsers"), adminUsersMetric],
-                  [t("adminActiveReservations"), adminActiveBookings.length]
-                ].map(([label, value]) => (
-                  <div key={String(label)} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-                    <div className="text-sm font-bold text-slate-500 dark:text-gray-400">{label}</div>
-                    <div className="mt-2 text-3xl font-bold text-slate-950 dark:text-white">{value}</div>
-                  </div>
-                ))}
+                {([
+                  [t("adminTerritoriesMenu"), adminTerritories.length, null],
+                  [t("adminReviewMachines"), adminMachines.length, null],
+                  [t("adminAllUsers"), adminUsersMetric, isSuperAdmin ? "/admin/users" : null],
+                  [t("adminActiveReservations"), adminActiveBookings.length, "/bookings"],
+                ] as [string, number, string | null][]).map(([label, value, path]) => {
+                  const inner = (
+                    <>
+                      <div className="text-sm font-bold text-slate-500 dark:text-gray-400">{label}</div>
+                      <div className="mt-2 text-3xl font-bold text-slate-950 dark:text-white">{value}</div>
+                    </>
+                  );
+                  return path ? (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => navigateTo(path)}
+                      className="rounded-lg border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md dark:border-gray-800 dark:bg-gray-900 dark:hover:border-blue-700"
+                    >
+                      {inner}
+                    </button>
+                  ) : (
+                    <div key={label} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                      {inner}
+                    </div>
+                  );
+                })}
               </div>
 
               {renderAdminTerritoryDashboard()}
@@ -1524,12 +1540,12 @@ const generateAdminInviteCode = async (territoryId: string) => {
                           <tr key={user.id}>
                             <td className="px-5 py-5 font-bold text-slate-950 dark:text-white">{t("adminTableUser")} #{user.id}</td>
                             <td className="px-5 py-5 font-semibold text-slate-700 dark:text-gray-200">{user.email}</td>
-                            <td className="px-5 py-5">
+                            <td className="px-5 py-5 whitespace-nowrap">
                               <span className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 ring-1 ring-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-800">
                                 {user.role === "superadmin" ? t("authRoleSuperAdmin") : user.role === "admin" ? t("authRoleAdmin") : t("authRoleUser")}
                               </span>
                             </td>
-                            <td className="px-5 py-5">
+                            <td className="px-5 py-5 whitespace-nowrap">
                               <span className={`rounded-lg px-3 py-1.5 text-xs font-bold ring-1 ${
                                 user.is_active
                                   ? "bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-800"
