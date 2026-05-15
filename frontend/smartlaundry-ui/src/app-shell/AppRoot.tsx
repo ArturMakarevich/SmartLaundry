@@ -1764,8 +1764,12 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                 const selectedProgramName = confirmProgramSelection[booking.id] ?? booking.selected_program_name ?? "";
                                 const selectedProgram = programs.find(p => p.name === selectedProgramName) || programs[0] || null;
 
-                                // Wash timer (after confirmation)
-                                const washEndAt = booking.estimated_wash_end_at ? new Date(booking.estimated_wash_end_at) : null;
+                                // Wash end: from server or computed as confirmed_at + program duration
+                                const washEndAt = booking.estimated_wash_end_at
+                                  ? new Date(booking.estimated_wash_end_at)
+                                  : (booking.confirmed_at && booking.selected_program_duration_minutes)
+                                    ? new Date(new Date(booking.confirmed_at).getTime() + booking.selected_program_duration_minutes * 60000)
+                                    : null;
                                 const washRemainingMs = washEndAt ? washEndAt.getTime() - now.getTime() : null;
                                 const washDone = washRemainingMs !== null && washRemainingMs <= 0;
                                 const washH = washRemainingMs && washRemainingMs > 0 ? Math.floor(washRemainingMs / 3600000) : 0;
@@ -1786,18 +1790,19 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                             {t("bookingModeLabel")}: <span className="text-blue-700 dark:text-blue-300">{booking.selected_program_name}{booking.selected_program_duration_minutes ? ` · ${booking.selected_program_duration_minutes} min` : ""}</span>
                                           </div>
                                         )}
-                                        {washEndAt && (
-                                          <div className="text-sm font-semibold text-slate-700 dark:text-gray-200">
-                                            {t("estimatedFinish")}: <span className="text-blue-700 dark:text-blue-300">{formatBookingTime(booking.estimated_wash_end_at!)}</span>
-                                          </div>
-                                        )}
                                         {washEndAt && !washDone && (
-                                          <div className="mt-2 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900/60 dark:bg-blue-950/30">
-                                            <Timer size={15} className="shrink-0 text-blue-600 dark:text-blue-300" />
-                                            <span className="font-mono text-sm font-bold text-blue-700 dark:text-blue-200">
-                                              {`${pad(washH)}:${pad(washM)}:${pad(washS)}`}
-                                            </span>
-                                            <span className="text-xs font-semibold text-blue-600 dark:text-blue-300">{t("washTimeRemaining")}</span>
+                                          <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900/60 dark:bg-blue-950/30">
+                                            <div className="flex items-center justify-between">
+                                              <div className="text-xs font-semibold text-blue-600 dark:text-blue-300">{t("estimatedFinish")}</div>
+                                              <div className="font-mono text-lg font-bold text-blue-700 dark:text-blue-200">
+                                                {`${String(washEndAt.getHours()).padStart(2, "0")}:${String(washEndAt.getMinutes()).padStart(2, "0")}`}
+                                              </div>
+                                            </div>
+                                            <div className="mt-1 flex items-center gap-1.5 text-xs text-blue-500 dark:text-blue-400">
+                                              <Timer size={12} className="shrink-0" />
+                                              <span className="font-mono font-semibold">{`${pad(washH)}:${pad(washM)}:${pad(washS)}`}</span>
+                                              <span>{t("washTimeRemaining")}</span>
+                                            </div>
                                           </div>
                                         )}
                                         {washDone && (
@@ -1893,7 +1898,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                             <button
                                               type="button"
                                               onClick={() => setOccupiedBookingId(booking.id)}
-                                              className="w-full text-center text-xs font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+                                              className="h-9 w-full rounded-md border border-orange-300 bg-orange-50 text-xs font-bold text-orange-700 transition hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/20 dark:text-orange-300 dark:hover:bg-orange-950/40"
                                             >
                                               {t("occupiedButton")}
                                             </button>
