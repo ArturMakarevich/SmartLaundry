@@ -910,7 +910,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
         </div>
       ) : (
         <div className="space-y-2 p-4">
-          {adminTerritories.slice(isSuperAdmin ? 2 : 0).map(territory => {
+          {adminTerritories.map(territory => {
             const tid = String(territory.id);
             const isExpanded = expandedTerritories[tid] ?? false;
             const machinesCount = territory.zones.reduce((sum, zone) => sum + zone.machines.length, 0);
