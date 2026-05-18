@@ -17,8 +17,10 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  Clock,
   Copy,
   Home,
+  Hourglass,
   Info,
   MapPin,
   Plus,
@@ -287,10 +289,13 @@ export function AppRoot() {
   const highlightedBookingId = isBookingsPage
     ? Number(new URLSearchParams(window.location.search).get("booking")) || null
     : null;
+  const dateLocale = lang === "pl" ? "pl-PL" : "en-US";
   const formatBookingTime = (value: string) =>
     new Date(value).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const formatBookingDate = (value: string) =>
-    new Date(value).toLocaleDateString(lang, { month: "long", day: "numeric", year: "numeric" });
+    new Date(value).toLocaleDateString(dateLocale, { month: "long", day: "numeric", year: "numeric" });
+  const formatFullDateTime = (value: string) =>
+    `${new Date(value).toLocaleDateString(dateLocale, { month: "long", day: "numeric", year: "numeric" })}, ${new Date(value).toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" })}`;
   const getBookingZoneLabel = (booking: UserBooking) => {
     const base = booking.zone_name || t("territoryFallback");
     const description = booking.zone_description?.trim();
@@ -1162,7 +1167,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                                         </span>
                                                       </div>
                                                       <div className="mt-0.5 text-[10px] text-slate-400 dark:text-gray-500">
-                                                        {new Date(report.created_at).toLocaleString(lang, { dateStyle: "short", timeStyle: "short" })}
+                                                        {formatFullDateTime(report.created_at)}
                                                       </div>
                                                       {report.status !== "resolved" && (
                                                         <button type="button"
@@ -1786,47 +1791,64 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                 return (
                                   <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-gray-800 dark:bg-gray-900">
                                     {booking.confirmed_at ? (
-                                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(190px,240px)] lg:items-stretch">
-                                        <div className="min-w-0 space-y-2">
-                                          <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                                            <CheckCircle2 size={15} />
-                                            {t("bookingConfirmedShort")}
-                                          </div>
-                                          {booking.selected_program_name && (
-                                            <div className="rounded-md border border-slate-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-950/50">
-                                              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-gray-500">
+                                      <div className="space-y-3">
+                                        <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                                          <CheckCircle2 size={15} />
+                                          <span>{t("bookingConfirmedShort")}</span>
+                                        </div>
+                                        {!washDone ? (
+                                          <div className="grid gap-3 sm:grid-cols-2">
+                                            <div className="rounded-md border border-slate-200 bg-white px-3 py-3 dark:border-gray-800 dark:bg-gray-950/50">
+                                              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-gray-500">
                                                 {t("bookingModeLabel")}
                                               </div>
-                                              <div className="mt-0.5 truncate text-sm font-bold text-slate-800 dark:text-gray-100">
-                                                {booking.selected_program_name}
+                                              <div className="mt-1.5 truncate text-base font-bold text-slate-900 dark:text-white">
+                                                {booking.selected_program_name || "—"}
                                                 {booking.selected_program_duration_minutes ? (
-                                                  <span className="text-blue-700 dark:text-blue-300"> · {booking.selected_program_duration_minutes} min</span>
+                                                  <span className="ml-1 text-blue-700 dark:text-blue-300">· {booking.selected_program_duration_minutes} min</span>
                                                 ) : null}
                                               </div>
                                             </div>
-                                          )}
-                                        </div>
-                                        {washEndAt && !washDone && (
-                                          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-900/60 dark:bg-blue-950/30">
-                                            <div className="flex items-center justify-between gap-3">
-                                              <div className="text-xs font-bold text-blue-600 dark:text-blue-300">{t("estimatedFinish")}</div>
-                                              <div className="font-mono text-base font-bold text-blue-700 dark:text-blue-200">
-                                                {`${String(washEndAt.getHours()).padStart(2, "0")}:${String(washEndAt.getMinutes()).padStart(2, "0")}`}
+                                            {washEndAt ? (
+                                              <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-900/60 dark:bg-blue-950/30">
+                                                <div className="min-w-0 flex-1 space-y-2">
+                                                  <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-300">
+                                                    <Clock size={13} className="shrink-0" />
+                                                    <span>{t("estimatedFinish")} {pad(washEndAt.getHours())}:{pad(washEndAt.getMinutes())}</span>
+                                                  </div>
+                                                  <div>
+                                                    <div className="flex items-center gap-1.5 text-[10px] font-semibold text-blue-500 dark:text-blue-400">
+                                                      <Hourglass size={11} className="shrink-0" />
+                                                      <span>{t("washTimeRemaining")}</span>
+                                                    </div>
+                                                    <div className="mt-0.5 font-mono text-xl font-black leading-none text-blue-800 dark:text-blue-100">
+                                                      {`${pad(washH)}:${pad(washM)}:${pad(washS)}`}
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                                <svg width="60" height="60" viewBox="0 0 100 100" className="shrink-0 -rotate-90" aria-hidden="true">
+                                                  <circle cx="50" cy="50" r="36" fill="none" stroke="currentColor" strokeWidth="10" className="text-blue-100 dark:text-blue-900/60" />
+                                                  <circle
+                                                    cx="50" cy="50" r="36"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth="10"
+                                                    strokeLinecap="round"
+                                                    strokeDasharray="226.2 226.2"
+                                                    strokeDashoffset={(() => {
+                                                      const totalMs = washEndAt.getTime() - new Date(booking.confirmed_at!).getTime();
+                                                      const elapsedMs = now.getTime() - new Date(booking.confirmed_at!).getTime();
+                                                      const progress = totalMs > 0 ? Math.max(0, Math.min(1, elapsedMs / totalMs)) : 0;
+                                                      return 226.2 * (1 - progress);
+                                                    })()}
+                                                    className="text-blue-600 dark:text-blue-400"
+                                                  />
+                                                </svg>
                                               </div>
-                                            </div>
-                                            <div className="mt-3 flex items-end justify-between gap-3">
-                                              <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-500 dark:text-blue-400">
-                                                <Timer size={13} className="shrink-0" />
-                                                <span>{t("washTimeRemaining")}</span>
-                                              </div>
-                                              <div className="font-mono text-3xl font-black leading-none text-blue-800 dark:text-blue-100">
-                                                {`${pad(washH)}:${pad(washM)}:${pad(washS)}`}
-                                              </div>
-                                            </div>
+                                            ) : null}
                                           </div>
-                                        )}
-                                        {washDone && (
-                                          <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/30 lg:col-span-2">
+                                        ) : (
+                                          <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/30">
                                             <CheckCircle2 size={15} className="shrink-0 text-emerald-600 dark:text-emerald-300" />
                                             <span className="text-xs font-bold text-emerald-700 dark:text-emerald-200">{t("washLikelyDone")}</span>
                                           </div>
@@ -2063,7 +2085,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
                               <div className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-gray-300">{item.message}</div>
                             )}
                             <div className="mt-3 text-xs font-semibold text-slate-400 dark:text-gray-500">
-                              {new Date(item.created_at).toLocaleString(lang, { dateStyle: "medium", timeStyle: "short" })}
+                              {formatFullDateTime(item.created_at)}
                             </div>
                           </div>
                           {!item.is_read && <span className="mt-1 h-2.5 w-2.5 rounded-full bg-red-500" />}
@@ -2295,7 +2317,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
                     <div className="mt-1 text-xs text-slate-500 dark:text-gray-400">{item.message}</div>
                   )}
                   <div className="mt-2 text-[11px] text-slate-400">
-                    {new Date(item.created_at).toLocaleString(lang, { dateStyle: "medium", timeStyle: "short" })}
+                    {formatFullDateTime(item.created_at)}
                   </div>
                 </button>
               ))

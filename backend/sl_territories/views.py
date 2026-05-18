@@ -42,7 +42,7 @@ def generate_code() -> str:
 
 
 def is_superadmin_user(user) -> bool:
-    return getattr(user, "role", None) == "superadmin" or user.is_superuser
+    return getattr(user, "role", None) == "superadmin"
 
 
 # Zwraca queryset terytoriów widocznych dla danego admina.

@@ -250,6 +250,18 @@ class BookingSerializer(serializers.ModelSerializer):
                 )
         if self._overlap_exists(machine, start, end):
             raise serializers.ValidationError("Slot overlaps with existing booking")
+        if request and request.user and request.user.is_authenticated:
+            booking_date = timezone.localtime(start).date()
+            same_machine_today = Booking.objects.filter(
+                user=request.user,
+                machine=machine,
+                status=Booking.STATUS_ACTIVE,
+                start_time__date=booking_date,
+            ).exists()
+            if same_machine_today:
+                raise serializers.ValidationError(
+                    "You already have a booking for this machine on this day."
+                )
         if start < timezone.now():
             raise serializers.ValidationError("Cannot book in the past")
         return attrs
