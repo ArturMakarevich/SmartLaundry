@@ -1535,14 +1535,20 @@ const generateAdminInviteCode = async (territoryId: string) => {
                           <th className="px-5 py-4 font-bold">{t("adminTableEmail")}</th>
                           <th className="px-5 py-4 font-bold">{t("adminTableRole")}</th>
                           <th className="px-5 py-4 font-bold">{t("adminTableStatus")}</th>
-                          <th className="px-5 py-4 font-bold">{t("adminTableRegistered")}</th>
                           <th className="px-5 py-4 font-bold">{t("adminTableActions")}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-gray-800">
                         {filteredAdminUsers.map(user => (
                           <tr key={user.id}>
-                            <td className="px-5 py-5 font-bold text-slate-950 dark:text-white">{t("adminTableUser")} #{user.id}</td>
+                            <td className="px-5 py-5 font-bold text-slate-950 dark:text-white">
+                              <span
+                                className="cursor-default"
+                                title={new Date(user.date_joined).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-US", { year: "numeric", month: "long", day: "numeric" })}
+                              >
+                                {t("adminTableUser")} #{user.id}
+                              </span>
+                            </td>
                             <td className="px-5 py-5 font-semibold text-slate-700 dark:text-gray-200">{user.email}</td>
                             <td className="px-5 py-5 whitespace-nowrap">
                               <span className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 ring-1 ring-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-800">
@@ -1557,9 +1563,6 @@ const generateAdminInviteCode = async (territoryId: string) => {
                               }`}>
                                 {user.is_active ? t("adminActiveAccount") : t("adminBlockedAccount")}
                               </span>
-                            </td>
-                            <td className="px-5 py-5 whitespace-nowrap text-sm text-slate-600 dark:text-gray-300">
-                              {new Date(user.date_joined).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-US", { year: "numeric", month: "short", day: "numeric" })}
                             </td>
                             <td className="px-5 py-5">
                               <div className="flex flex-wrap gap-2">
