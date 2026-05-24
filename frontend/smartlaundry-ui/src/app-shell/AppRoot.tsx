@@ -12,6 +12,8 @@ import { UserTerritoryView } from "../features/territories/UserTerritoryView";
 import { apiClient } from "../shared/apiClient";
 import { ModalShell } from "../ui-kit/ModalShell";
 import {
+  AlertCircle,
+  AlertTriangle,
   Bell,
   CalendarClock,
   Check,
@@ -1034,26 +1036,47 @@ const generateAdminInviteCode = async (territoryId: string) => {
                       {territory.zones.map(zone => {
                         const zoneKey = `${tid}-${zone.id}`;
                         const isZoneOpen = expandedZones[zoneKey] ?? true;
+                        const zoneActiveCount = zone.machines.filter(m => m.status === "active").length;
+                        const zoneBrokenCount = zone.machines.filter(m => m.status === "broken").length;
+                        const zoneOpenReports = (problemReports[tid] || []).filter(r =>
+                          r.status !== "resolved" && zone.machines.some(m => m.number === r.machine_number)
+                        ).length;
                         return (
-                          <div key={zone.id} className="rounded-lg border border-slate-200 dark:border-gray-700 overflow-hidden">
+                          <div key={zone.id} className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-900">
                             <button type="button"
                               onClick={() => setExpandedZones(prev => ({ ...prev, [zoneKey]: !isZoneOpen }))}
-                              className="w-full flex items-center justify-between px-4 py-3 text-left bg-slate-50 dark:bg-gray-800/60 hover:bg-slate-100 dark:hover:bg-gray-800 transition">
-                              <span className="font-bold text-slate-900 dark:text-white text-sm">{getAdminZoneLabel(zone)}</span>
-                              <ChevronDown size={14} className={`shrink-0 text-slate-400 transition-transform ${isZoneOpen ? "rotate-180" : ""} dark:text-gray-500`} />
+                              className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 dark:hover:bg-gray-800/40 transition">
+                              <div>
+                                <span className="font-bold text-slate-900 dark:text-white">{getAdminZoneLabel(zone)}</span>
+                                <div className="mt-0.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                  {zone.machines.length} {t("adminZoneMachinesUnit")} · {zoneActiveCount} {t("adminZoneActiveShort")} · {zoneBrokenCount} {t("adminZoneBrokenShort")} · {zoneOpenReports} {t("adminZoneReportsShort")}
+                                </div>
+                              </div>
+                              <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${isZoneOpen ? "rotate-180" : ""} dark:text-gray-500`} />
                             </button>
                             {isZoneOpen && (
-                              <div className="grid gap-3 p-3 md:grid-cols-2">
+                              <div className="grid gap-4 border-t border-slate-100 p-4 dark:border-gray-800 sm:grid-cols-2">
                                 {zone.machines.map(machine => {
+                                  const machineKey = `${tid}-${machine.id}`;
+                                  const reportsLoading = problemReportsLoading[tid] || false;
+                                  const allMachineReports = (problemReports[tid] || [])
+                                    .filter(r => r.machine_number === machine.number && (!r.zone_name || r.zone_name === zone.name))
+                                    .slice()
+                                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                                  const openCount = allMachineReports.filter(r => r.status !== "resolved").length;
+                                  const isReportsOpen = expandedMachineReports[machineKey] || false;
                                   const statusMeta = getMachineStatusMeta(machine);
+                                  const isBroken = machine.status === "broken";
+                                  const drumColor = isBroken ? "#ef4444" : machine.status === "inactive" ? "#9ca3af" : machine.status === "busy" ? "#f59e0b" : "#22c55e";
                                   return (
-                                    <div key={machine.id} className="rounded-lg border border-slate-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-950/50 space-y-2.5">
-                                      <div className="flex items-start justify-between gap-2">
-                                        <div>
-                                          <div className="font-bold text-slate-950 dark:text-white text-sm">
+                                    <div key={machine.id} className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-950">
+                                      <div className="flex items-center gap-3 p-4">
+                                        <InlineMachine size={56} drumColor={drumColor} className="shrink-0" />
+                                        <div className="min-w-0 flex-1">
+                                          <div className="font-bold text-slate-950 dark:text-white">
                                             {t("machineLabel")} #{String(machine.number).padStart(2, "0")}
                                           </div>
-                                          <div className="text-xs font-semibold text-slate-500 dark:text-gray-400">
+                                          <div className="truncate text-xs text-slate-500 dark:text-gray-400">
                                             {machine.model_name || t("adminNoModel")}
                                           </div>
                                         </div>
@@ -1061,130 +1084,74 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                           {statusMeta.label}
                                         </span>
                                       </div>
-                                      <div className="flex gap-1.5">
-                                        {(["active", "broken"] as const).map(s => {
-                                          const sel = machine.status === s;
-                                          return (
-                                            <button key={s} type="button"
-                                              onClick={() => void updateMachineStatus(machine.id, s)}
-                                              className={`flex-1 h-8 rounded-md border text-xs font-bold transition ${
-                                                sel
-                                                  ? s === "active"
-                                                    ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                                    : "border-red-400 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-950/40 dark:text-red-300"
-                                                  : "border-slate-200 bg-slate-50 text-slate-600 hover:border-blue-200 hover:text-blue-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
-                                              }`}>
-                                              {s === "active" ? t("adminMarkActive") : t("adminMarkBroken")}
-                                            </button>
-                                          );
-                                        })}
+
+                                      <div className="flex items-center gap-2 border-t border-slate-100 px-4 py-2.5 dark:border-gray-800">
+                                        {openCount > 0
+                                          ? <AlertCircle size={15} className="shrink-0 text-red-500" />
+                                          : <CheckCircle2 size={15} className="shrink-0 text-emerald-500" />
+                                        }
+                                        <span className={`flex-1 text-sm font-semibold ${openCount > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}>
+                                          {openCount > 0
+                                            ? t("adminOpenReportsCount").replace("{count}", String(openCount))
+                                            : t("adminProblemReportsNone")}
+                                        </span>
+                                        {openCount > 0 && (
+                                          <button type="button"
+                                            onClick={() => setExpandedMachineReports(prev => ({ ...prev, [machineKey]: !isReportsOpen }))}
+                                            className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-blue-700 dark:text-gray-400 dark:hover:text-blue-300">
+                                            {isReportsOpen ? t("adminCollapseReports") : t("adminExpandReports")}
+                                            <ChevronDown size={12} className={`transition-transform ${isReportsOpen ? "rotate-180" : ""}`} />
+                                          </button>
+                                        )}
+                                        <button type="button"
+                                          onClick={() => void loadProblemReports(tid)}
+                                          disabled={reportsLoading}
+                                          className="p-1 text-slate-400 transition hover:text-slate-600 disabled:opacity-40 dark:text-gray-500 dark:hover:text-gray-300">
+                                          <RefreshCw size={13} className={reportsLoading ? "animate-spin" : ""} />
+                                        </button>
                                       </div>
-                                      {(() => {
-                                        const machineKey = `${tid}-${machine.id}`;
-                                        const reportsLoading = problemReportsLoading[tid] || false;
-                                        const allMachineReports = (problemReports[tid] || [])
-                                          .filter(r =>
-                                            r.machine_number === machine.number &&
-                                            (!r.zone_name || r.zone_name === zone.name)
-                                          )
-                                          .slice()
-                                          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-                                        const openCount = allMachineReports.filter(r => r.status !== "resolved").length;
-                                        const isReportsOpen = expandedMachineReports[machineKey] || false;
-                                        const hasAny = allMachineReports.length > 0;
-                                        const allResolved = hasAny && openCount === 0;
-                                        const borderCls = openCount > 0
-                                          ? "border-red-200 dark:border-red-900/50"
-                                          : allResolved
-                                          ? "border-emerald-200 dark:border-emerald-900/50"
-                                          : "border-slate-200 dark:border-gray-700";
-                                        const headerCls = openCount > 0
-                                          ? "bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-950/30"
-                                          : allResolved
-                                          ? "bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/30"
-                                          : "bg-slate-50 hover:bg-slate-100 dark:bg-gray-800/40 dark:hover:bg-gray-800/60";
-                                        const labelCls = openCount > 0
-                                          ? "text-red-700 dark:text-red-300"
-                                          : allResolved
-                                          ? "text-emerald-700 dark:text-emerald-300"
-                                          : "text-slate-500 dark:text-gray-400";
-                                        const chevronCls = openCount > 0
-                                          ? "text-red-400"
-                                          : allResolved
-                                          ? "text-emerald-400"
-                                          : "text-slate-400 dark:text-gray-500";
-                                        return (
-                                          <div className={`rounded-md border overflow-hidden ${borderCls}`}>
-                                            <div className={`flex items-center ${headerCls}`}>
-                                              <button type="button"
-                                                onClick={() => setExpandedMachineReports(prev => ({ ...prev, [machineKey]: !isReportsOpen }))}
-                                                className="flex-1 flex items-center justify-between px-3 py-1.5 transition">
-                                                <span className={`text-[11px] font-bold ${labelCls}`}>
-                                                  {t("adminProblemReports")} ({reportsLoading ? "…" : allMachineReports.length})
+
+                                      {isReportsOpen && openCount > 0 && (
+                                        <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-gray-800 dark:border-gray-800">
+                                          {allMachineReports.filter(r => r.status !== "resolved").map(report => (
+                                            <div key={report.id} className="bg-red-50/50 px-4 py-2.5 dark:bg-red-950/10">
+                                              <div className="flex items-start justify-between gap-2">
+                                                <div className="flex-1 break-words text-xs text-slate-600 dark:text-gray-300">{report.description}</div>
+                                                <span className="shrink-0 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700 ring-1 ring-red-100 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-800">
+                                                  {t("adminProblemReportOpen")}
                                                 </span>
-                                                <span className="flex items-center gap-1.5">
-                                                  {openCount > 0 && (
-                                                    <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-950/40 dark:text-red-300">
-                                                      {t("adminOpenReportsCount").replace("{count}", String(openCount))}
-                                                    </span>
-                                                  )}
-                                                  <ChevronDown size={11} className={`transition-transform ${isReportsOpen ? "rotate-180" : ""} ${chevronCls}`} />
-                                                </span>
-                                              </button>
+                                              </div>
+                                              <div className="mt-0.5 text-[10px] text-slate-400 dark:text-gray-500">{formatFullDateTime(report.created_at)}</div>
                                               <button type="button"
-                                                onClick={() => void loadProblemReports(tid)}
-                                                disabled={reportsLoading}
-                                                className={`px-2 py-1.5 transition disabled:opacity-40 ${labelCls}`}
-                                                title={t("inviteCodeGenerate").replace("Generuj", "Odśwież").replace("Generate", "Refresh")}>
-                                                <RefreshCw size={11} className={reportsLoading ? "animate-spin" : ""} />
+                                                disabled={resolvingReportId === report.id}
+                                                onClick={() => void resolveReport(report.id, territory.id)}
+                                                className="mt-1.5 h-6 rounded-md border border-emerald-200 px-2 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-900 dark:text-emerald-300">
+                                                {t("adminProblemReportMarkResolved")}
                                               </button>
                                             </div>
-                                            {isReportsOpen && (
-                                              <div className="divide-y divide-slate-100 dark:divide-gray-800">
-                                                {reportsLoading ? (
-                                                  <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-gray-500">
-                                                    {t("adminTerritoriesLoading")}
-                                                  </div>
-                                                ) : allMachineReports.length === 0 ? (
-                                                  <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-gray-500">
-                                                    {t("adminProblemReportsNone")}
-                                                  </div>
-                                                ) : (
-                                                  allMachineReports.map(report => (
-                                                    <div key={report.id} className={`px-3 py-2 text-[11px] ${
-                                                      report.status === "resolved"
-                                                        ? "bg-white dark:bg-gray-950/40"
-                                                        : "bg-red-50/50 dark:bg-red-950/10"
-                                                    }`}>
-                                                      <div className="flex items-start justify-between gap-2">
-                                                        <div className="text-slate-600 dark:text-gray-300 break-words flex-1">{report.description}</div>
-                                                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ring-1 ${
-                                                          report.status === "resolved"
-                                                            ? "bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800"
-                                                            : "bg-red-50 text-red-700 ring-red-100 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-800"
-                                                        }`}>
-                                                          {report.status === "resolved" ? t("adminProblemReportResolved") : t("adminProblemReportOpen")}
-                                                        </span>
-                                                      </div>
-                                                      <div className="mt-0.5 text-[10px] text-slate-400 dark:text-gray-500">
-                                                        {formatFullDateTime(report.created_at)}
-                                                      </div>
-                                                      {report.status !== "resolved" && (
-                                                        <button type="button"
-                                                          disabled={resolvingReportId === report.id}
-                                                          onClick={() => void resolveReport(report.id, territory.id)}
-                                                          className="mt-1 h-6 rounded-md border border-emerald-200 px-2 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-900 dark:text-emerald-300">
-                                                          {t("adminProblemReportMarkResolved")}
-                                                        </button>
-                                                      )}
-                                                    </div>
-                                                  ))
-                                                )}
-                                              </div>
-                                            )}
-                                          </div>
-                                        );
-                                      })()}
+                                          ))}
+                                        </div>
+                                      )}
+
+                                      <div className="mt-auto grid grid-cols-2 gap-2 border-t border-slate-100 p-3 dark:border-gray-800">
+                                        <button type="button"
+                                          onClick={() => setExpandedMachineReports(prev => ({ ...prev, [machineKey]: !isReportsOpen }))}
+                                          className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:border-blue-200 hover:text-blue-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700">
+                                          {t("adminMachineDetails")}
+                                        </button>
+                                        <button type="button"
+                                          onClick={() => void updateMachineStatus(machine.id, isBroken ? "active" : "broken")}
+                                          className={`flex h-9 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-bold transition ${
+                                            isBroken
+                                              ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                              : "border-orange-200 bg-white text-orange-600 hover:bg-orange-50 dark:border-orange-800 dark:bg-transparent dark:text-orange-300"
+                                          }`}>
+                                          {isBroken
+                                            ? <><Check size={12} />{t("adminMarkActive")}</>
+                                            : <><AlertTriangle size={12} />{t("adminMarkBroken")}</>
+                                          }
+                                        </button>
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -1568,6 +1535,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
                           <th className="px-5 py-4 font-bold">{t("adminTableEmail")}</th>
                           <th className="px-5 py-4 font-bold">{t("adminTableRole")}</th>
                           <th className="px-5 py-4 font-bold">{t("adminTableStatus")}</th>
+                          <th className="px-5 py-4 font-bold">{t("adminTableRegistered")}</th>
                           <th className="px-5 py-4 font-bold">{t("adminTableActions")}</th>
                         </tr>
                       </thead>
@@ -1589,6 +1557,9 @@ const generateAdminInviteCode = async (territoryId: string) => {
                               }`}>
                                 {user.is_active ? t("adminActiveAccount") : t("adminBlockedAccount")}
                               </span>
+                            </td>
+                            <td className="px-5 py-5 whitespace-nowrap text-sm text-slate-600 dark:text-gray-300">
+                              {new Date(user.date_joined).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-US", { year: "numeric", month: "short", day: "numeric" })}
                             </td>
                             <td className="px-5 py-5">
                               <div className="flex flex-wrap gap-2">

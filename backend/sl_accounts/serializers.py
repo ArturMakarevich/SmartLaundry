@@ -186,3 +186,8 @@ class UserInfoSerializer(serializers.ModelSerializer):
 
     def get_public_id(self, obj):
         return obj.id
+
+
+class AdminUserSerializer(UserInfoSerializer):
+    class Meta(UserInfoSerializer.Meta):
+        fields = ("id", "public_id", "email", "role", "is_active", "date_joined")

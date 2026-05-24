@@ -111,7 +111,7 @@ const isSameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 const formatDateLabel = (d: Date, locale?: string) =>
-  d.toLocaleDateString(locale, { month: "long", day: "numeric", year: "numeric" });
+  d.toLocaleDateString(locale === "pl" ? "pl-PL" : "en-US", { month: "long", day: "numeric", year: "numeric" });
 
 const formatTimeLabel = (d: Date) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
@@ -1524,7 +1524,7 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     );
   }
 
-  const quickDateFormatter = new Intl.DateTimeFormat(lang, { month: "short", day: "numeric" });
+  const quickDateFormatter = new Intl.DateTimeFormat(lang === "pl" ? "pl-PL" : "en-US", { month: "long", day: "numeric" });
   const quickDates = [
     { title: t("dayToday"), date: currentTime },
     { title: t("dayTomorrow"), date: addMinutes(currentTime, 24 * 60) },

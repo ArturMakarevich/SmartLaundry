@@ -16,6 +16,7 @@ from .serializers import (
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
     UserInfoSerializer,
+    AdminUserSerializer,
 )
 from .email_service import send_verification_code_email, send_password_reset_code_email
 
@@ -229,7 +230,7 @@ class AdminUsersListView(APIView):
 
     def get(self, request):
         qs = SmartLaundryUser.objects.all().order_by("id")
-        serializer = UserInfoSerializer(qs, many=True)
+        serializer = AdminUserSerializer(qs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 

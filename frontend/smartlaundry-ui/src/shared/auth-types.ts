@@ -11,4 +11,5 @@ export type AdminUserItem = {
   email: string;
   role: UserRole;
   is_active: boolean;
+  date_joined: string;
 };

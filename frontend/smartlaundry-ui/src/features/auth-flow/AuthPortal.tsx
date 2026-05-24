@@ -54,7 +54,7 @@ export function AuthPortal({ open, onClose, initialMode = "signin", initialEmail
 
   return (
     <ModalShell open={open} onClose={onClose} size="xl" verticalAlign="center">
-      <div className="flex items-start justify-between mb-6">
+      <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 flex items-start justify-between mb-6 pb-2 -mx-8 px-8 -mt-8 pt-8">
         <h2 className="text-2xl font-bold text-slate-950 dark:text-white">
           {getTitle()}
         </h2>
