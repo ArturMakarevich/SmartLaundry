@@ -383,32 +383,36 @@ export function AppRoot() {
 
   const loadNotifications = async (limit = 3) => {
     if (!currentUser) return;
-    const response = await apiClient.get("territories/notifications/", {
-      params: limit ? { limit } : undefined
-    });
-    const results: LaundryNotification[] = Array.isArray(response.data?.results) ? response.data.results : [];
-    const newUnread = Number(response.data?.unread_count) || 0;
-    setNotifications(results);
-    setUnreadNotifications(newUnread);
-    // ID-based toast: first call sets a baseline so we don't toast old notifications.
-    // Subsequent calls toast any unread notification with an ID higher than the baseline.
-    const maxId = results.length > 0 ? Math.max(...results.map(n => n.id)) : 0;
-    if (toastedUntilIdRef.current === -1) {
-      toastedUntilIdRef.current = maxId;
-    } else {
-      const newNotifs = results.filter(n => !n.is_read && n.id > toastedUntilIdRef.current);
-      toastedUntilIdRef.current = maxId;
-      if (newNotifs.length > 0) {
-        const first = newNotifs[0];
-        setAppNoticeType("notification");
-        setAppNotice(newNotifs.length > 1 ? `${first.title} (+${newNotifs.length - 1})` : first.title);
-        window.setTimeout(() => setAppNotice(null), 7000);
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          for (const n of newNotifs) {
-            new Notification(n.title, { body: n.message || undefined, silent: false });
+    try {
+      const response = await apiClient.get("territories/notifications/", {
+        params: limit ? { limit } : undefined
+      });
+      const results: LaundryNotification[] = Array.isArray(response.data?.results) ? response.data.results : [];
+      const newUnread = Number(response.data?.unread_count) || 0;
+      setNotifications(results);
+      setUnreadNotifications(newUnread);
+      // ID-based toast: first call sets a baseline so we don't toast old notifications.
+      // Subsequent calls toast any unread notification with an ID higher than the baseline.
+      const maxId = results.length > 0 ? Math.max(...results.map(n => n.id)) : 0;
+      if (toastedUntilIdRef.current === -1) {
+        toastedUntilIdRef.current = maxId;
+      } else {
+        const newNotifs = results.filter(n => !n.is_read && n.id > toastedUntilIdRef.current);
+        toastedUntilIdRef.current = maxId;
+        if (newNotifs.length > 0) {
+          const first = newNotifs[0];
+          setAppNoticeType("notification");
+          setAppNotice(newNotifs.length > 1 ? `${first.title} (+${newNotifs.length - 1})` : first.title);
+          window.setTimeout(() => setAppNotice(null), 7000);
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            for (const n of newNotifs) {
+              new Notification(n.title, { body: n.message || undefined, silent: false });
+            }
           }
         }
       }
+    } catch {
+      // silent — notification failure must not break confirm/cancel/other actions
     }
   };
 
