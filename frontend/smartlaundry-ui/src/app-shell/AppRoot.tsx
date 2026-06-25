@@ -52,6 +52,7 @@ type UserBooking = {
   zone_name?: string;
   zone_description?: string;
   territory_name?: string;
+  territory_simple_mode?: boolean;
   start_time: string;
   end_time: string;
   status: string;
@@ -89,6 +90,8 @@ type AdminTerritory = {
   code: string;
   slot_strategy?: "auto" | "fixed_120";
   booking_slot_minutes?: number;
+  simple_mode?: boolean;
+  simple_slot_durations?: number[];
   active_users_count?: number;
   current_reservations_count?: number;
   created_by_email?: string | null;
@@ -201,6 +204,7 @@ export function AppRoot() {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [joinSuccess, setJoinSuccess] = useState<string | null>(null);
   const [appNotice, setAppNotice] = useState<string | null>(null);
+  const [appNoticeType, setAppNoticeType] = useState<"success" | "notification">("success");
   const [leaveTerritoryConfirm, setLeaveTerritoryConfirm] = useState<{ id: number; name: string } | null>(null);
   const [leavingTerritoryId, setLeavingTerritoryId] = useState<number | null>(null);
   const [confirmProgramSelection, setConfirmProgramSelection] = useState<Record<number, string>>({});
@@ -210,6 +214,7 @@ export function AppRoot() {
   const { theme } = useTheme();
   const notificationsButtonRef = useRef<HTMLButtonElement | null>(null);
   const notificationsPanelRef = useRef<HTMLDivElement | null>(null);
+  const toastedUntilIdRef = useRef<number>(-1);
   const isDark = theme === "dark";
 
   useEffect(() => {
@@ -288,6 +293,7 @@ export function AppRoot() {
   const isAdminTerritoriesPage = currentPath === "/admin/territories";
   const isAdminTerritoryCreatePage = currentPath === "/admin/territories/new";
   const isAdminInfoPage = currentPath === "/admin/info";
+  const isUserInfoPage = currentPath === "/info";
   const highlightedBookingId = isBookingsPage
     ? Number(new URLSearchParams(window.location.search).get("booking")) || null
     : null;
@@ -380,8 +386,30 @@ export function AppRoot() {
     const response = await apiClient.get("territories/notifications/", {
       params: limit ? { limit } : undefined
     });
-    setNotifications(Array.isArray(response.data?.results) ? response.data.results : []);
-    setUnreadNotifications(Number(response.data?.unread_count) || 0);
+    const results: LaundryNotification[] = Array.isArray(response.data?.results) ? response.data.results : [];
+    const newUnread = Number(response.data?.unread_count) || 0;
+    setNotifications(results);
+    setUnreadNotifications(newUnread);
+    // ID-based toast: first call sets a baseline so we don't toast old notifications.
+    // Subsequent calls toast any unread notification with an ID higher than the baseline.
+    const maxId = results.length > 0 ? Math.max(...results.map(n => n.id)) : 0;
+    if (toastedUntilIdRef.current === -1) {
+      toastedUntilIdRef.current = maxId;
+    } else {
+      const newNotifs = results.filter(n => !n.is_read && n.id > toastedUntilIdRef.current);
+      toastedUntilIdRef.current = maxId;
+      if (newNotifs.length > 0) {
+        const first = newNotifs[0];
+        setAppNoticeType("notification");
+        setAppNotice(newNotifs.length > 1 ? `${first.title} (+${newNotifs.length - 1})` : first.title);
+        window.setTimeout(() => setAppNotice(null), 7000);
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          for (const n of newNotifs) {
+            new Notification(n.title, { body: n.message || undefined, silent: false });
+          }
+        }
+      }
+    }
   };
 
   const loadBookings = async () => {
@@ -461,6 +489,8 @@ export function AppRoot() {
       code: data?.code || "",
       slot_strategy: data?.slot_strategy === "fixed_120" ? "fixed_120" : "auto",
       booking_slot_minutes: Number(data?.booking_slot_minutes) || undefined,
+      simple_mode: Boolean(data?.simple_mode),
+      simple_slot_durations: Array.isArray(data?.simple_slot_durations) ? data.simple_slot_durations : [],
       zones: zonesArr.length || 1,
       machinesPerZone: machinesPerZone.length ? machinesPerZone : [1],
       zoneDescriptions,
@@ -472,6 +502,8 @@ export function AppRoot() {
     const payload = {
       name: territory.name,
       slot_strategy: territory.slot_strategy || "auto",
+      simple_mode: territory.simple_mode ?? false,
+      simple_slot_durations: territory.simple_slot_durations ?? [],
       zones: Array.from({ length: territory.zones }).map((_, zoneIndex) => {
         const machines = territory.machines.filter(machine => machine.zoneIndex === zoneIndex);
         const description = territory.zoneDescriptions?.[zoneIndex] || "";
@@ -634,9 +666,11 @@ const generateAdminInviteCode = async (territoryId: string) => {
   useEffect(() => {
     if (!currentUser) return;
     void loadNotifications(3);
-    const timer = window.setInterval(() => {
-      void loadNotifications(showAllNotifications ? 0 : 3);
-    }, 60000);
+    const timer = window.setInterval(async () => {
+      await loadNotifications(showAllNotifications ? 0 : 3);
+      // Reload bookings so cancelled bookings (detected by ensure_booking_time_notifications) are reflected
+      void loadBookings();
+    }, 30000);
     return () => window.clearInterval(timer);
   }, [currentUser?.id, showAllNotifications]);
 
@@ -842,8 +876,18 @@ const generateAdminInviteCode = async (territoryId: string) => {
       const updated = response.data as UserBooking;
       setBookings(prev => prev.map(booking => (booking.id === bookingId ? updated : booking)));
       await loadNotifications(showAllNotifications ? 0 : 3);
-    } catch {
-      setBookingsError(t("couldNotConfirmBooking"));
+    } catch (err: any) {
+      const detail: string = err?.response?.data?.detail ?? "";
+      if (detail.includes("Only active")) {
+        // Booking was already cancelled by the server — refresh the list so it disappears
+        void loadBookings();
+        setBookingsError(t("couldNotConfirmBookingCancelled"));
+      } else if (detail.includes("expired")) {
+        void loadBookings();
+        setBookingsError(t("couldNotConfirmBookingWindowExpired"));
+      } else {
+        setBookingsError(t("couldNotConfirmBooking"));
+      }
     }
   };
 
@@ -1352,7 +1396,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
             ) : userTerritoriesCount != null && userTerritoriesCount !== 0 && renderSidebarButton(
               Home,
               t("navDashboard"),
-              !isNotificationsPage && !isBookingsPage && !isTerritoriesPage,
+              !isNotificationsPage && !isBookingsPage && !isTerritoriesPage && !isUserInfoPage,
               () => navigateTo("/")
             )}
 
@@ -1375,6 +1419,9 @@ const generateAdminInviteCode = async (territoryId: string) => {
               isTerritoriesPage || userTerritoriesCount === 0,
               () => navigateTo("/territories")
             )}
+
+            {!isAdminRole && <hr className="border-slate-200 dark:border-gray-700" />}
+            {!isAdminRole && renderSidebarButton(Info, t("navGuide"), isUserInfoPage, () => navigateTo("/info"))}
           </nav>
 
           <div className={`mt-8 hidden rounded-lg bg-blue-50 px-4 py-5 text-center dark:bg-blue-950/30 ${
@@ -1696,39 +1743,54 @@ const generateAdminInviteCode = async (territoryId: string) => {
                         <div
                           id={`booking-row-${booking.id}`}
                           key={booking.id}
-                          className={`grid gap-4 rounded-lg border border-slate-100 bg-white p-4 transition lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center dark:border-gray-800 dark:bg-gray-950/40 ${
+                          className={`grid rounded-lg border bg-white p-4 transition lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start dark:bg-gray-950/40 ${
                             highlightedBookingId === booking.id
                               ? "border-blue-200 bg-blue-50 ring-1 ring-inset ring-blue-200 dark:border-blue-800 dark:bg-blue-950/30 dark:ring-blue-800"
-                              : ""
+                              : "border-slate-100 dark:border-gray-800"
                           }`}
                         >
-                          <div className="flex min-w-0 gap-4">
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-800">
+                          {/* ── Main content ─────────────────────────────── */}
+                          <div className="flex min-w-0 gap-3">
+                            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-800">
                               {index + 1}
                             </div>
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-3">
-                                <div className="text-lg font-bold text-slate-950 dark:text-white">
+
+                            <div className="min-w-0 flex-1 space-y-1">
+                              {/* Machine + status */}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-base font-bold text-slate-950 dark:text-white">
                                   {t("machineLabel")} #{String(booking.machine_number || booking.machine).padStart(2, "0")}
-                                </div>
-                                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-800">
+                                </span>
+                                <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 ring-1 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-800">
                                   {t("activeStatus")}
                                 </span>
                               </div>
-                              <div className="mt-2 text-sm font-semibold text-slate-600 dark:text-gray-300">
-                                {getBookingZoneLabel(booking)} · {booking.territory_name || t("territoryFallback")}
+
+                              {/* Location */}
+                              <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 dark:text-gray-400">
+                                <MapPin size={12} className="shrink-0" />
+                                <span className="truncate">{getBookingZoneLabel(booking)} · {booking.territory_name || t("territoryFallback")}</span>
                               </div>
+
+                              {/* Model — monospace */}
+                              {booking.machine_model && (
+                                <div className="font-mono text-xs text-slate-400 dark:text-gray-500">{booking.machine_model}</div>
+                              )}
+
+                              {/* Admin: user info */}
                               {isAdminRole && (
-                                <div className="mt-1 text-sm font-semibold text-slate-500 dark:text-gray-400">
+                                <div className="text-xs font-semibold text-slate-500 dark:text-gray-400">
                                   {formatUserLabel(booking.user)} · {booking.user?.email || t("bookingUnknownUser")}
                                 </div>
                               )}
-                              {booking.machine_model && (
-                                <div className="mt-1 text-sm text-slate-500 dark:text-gray-400">{booking.machine_model}</div>
-                              )}
-                              <div className="mt-3 text-base font-bold text-blue-700 dark:text-blue-300">
-                                {formatBookingDate(booking.start_time)} · {formatBookingTime(booking.start_time)}-{formatBookingTime(booking.end_time)}
+
+                              {/* Date — calendar icon */}
+                              <div className="flex items-center gap-1.5 pt-1 text-sm font-bold text-blue-700 dark:text-blue-300">
+                                <CalendarClock size={14} className="shrink-0" />
+                                <span>{formatBookingDate(booking.start_time)} · {formatBookingTime(booking.start_time)}–{formatBookingTime(booking.end_time)}</span>
                               </div>
+
+                              {/* ── State panel ─────────────────────────── */}
                               {!isSuperAdmin && (() => {
                                 const start = new Date(booking.start_time);
                                 const deadlineMs = booking.confirmation_extended ? 45 * 60000 : 15 * 60000;
@@ -1740,20 +1802,22 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                 const remainingSeconds = Math.floor((remainingMs % 60000) / 1000);
                                 const slotMinutes = Math.round((new Date(booking.end_time).getTime() - start.getTime()) / 60000);
                                 const programs = booking.machine_programs || [];
-                                const fittingPrograms = programs.filter(program => program.duration_minutes <= slotMinutes);
+                                const fittingPrograms = programs.filter(p => p.duration_minutes <= slotMinutes);
                                 const requestedProgramName = confirmProgramSelection[booking.id] ?? booking.selected_program_name ?? "";
-                                const requestedProgram = programs.find(program => program.name === requestedProgramName) || null;
+                                const requestedProgram = programs.find(p => p.name === requestedProgramName) || null;
                                 const selectedProgram =
                                   requestedProgram && requestedProgram.duration_minutes <= slotMinutes
                                     ? requestedProgram
                                     : fittingPrograms[0] || null;
                                 const selectedProgramName = selectedProgram?.name || "";
 
-                                // Wash end: from server or computed as confirmed_at + program duration
+                                // Wash end: server value, or confirmed_at + duration, or slot end for simple mode
                                 const washEndAt = booking.estimated_wash_end_at
                                   ? new Date(booking.estimated_wash_end_at)
                                   : (booking.confirmed_at && booking.selected_program_duration_minutes)
                                     ? new Date(new Date(booking.confirmed_at).getTime() + booking.selected_program_duration_minutes * 60000)
+                                    : (booking.confirmed_at && booking.territory_simple_mode)
+                                    ? new Date(booking.end_time)
                                     : null;
                                 const washRemainingMs = washEndAt ? washEndAt.getTime() - now.getTime() : null;
                                 const washDone = washRemainingMs !== null && washRemainingMs <= 0;
@@ -1763,57 +1827,61 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                 const pad = (n: number) => String(n).padStart(2, "0");
 
                                 return (
-                                  <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-gray-800 dark:bg-gray-900">
+                                  <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-gray-800 dark:bg-gray-900">
+
+                                    {/* STATE 3 — confirmed / washing */}
                                     {booking.confirmed_at ? (
-                                      <div className="space-y-3">
-                                        <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                                          <CheckCircle2 size={15} />
-                                          <span>{t("bookingConfirmedShort")}</span>
+                                      <div className="space-y-2.5">
+                                        <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                                          <CheckCircle2 size={13} />
+                                          {t("bookingConfirmedShort")}
                                         </div>
-                                        {!washDone ? (
-                                          <div className="grid gap-3 sm:grid-cols-2">
-                                            <div className="rounded-md border border-slate-200 bg-white px-3 py-3 dark:border-gray-800 dark:bg-gray-950/50">
+                                        {washDone ? (
+                                          <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/30">
+                                            <CheckCircle2 size={14} className="shrink-0 text-emerald-600 dark:text-emerald-300" />
+                                            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-200">{t("washLikelyDone")}</span>
+                                          </div>
+                                        ) : (
+                                          <div className="grid gap-2 sm:grid-cols-2">
+                                            {/* Program block */}
+                                            <div className="rounded-md border border-slate-200 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-950/60">
                                               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-gray-500">
                                                 {t("bookingModeLabel")}
                                               </div>
-                                              <div className="mt-1.5 truncate text-base font-bold text-slate-900 dark:text-white">
+                                              <div className="mt-1 truncate text-sm font-bold text-slate-900 dark:text-white">
                                                 {booking.selected_program_name || "—"}
                                                 {booking.selected_program_duration_minutes ? (
-                                                  <span className="ml-1 text-blue-700 dark:text-blue-300">· {booking.selected_program_duration_minutes} min</span>
+                                                  <span className="ml-1 font-semibold text-blue-600 dark:text-blue-400">· {booking.selected_program_duration_minutes} min</span>
                                                 ) : null}
                                               </div>
                                             </div>
+                                            {/* Timer block */}
                                             {washEndAt ? (
-                                              <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-900/60 dark:bg-blue-950/30">
-                                                <div className="min-w-0 flex-1 space-y-2">
-                                                  <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-300">
-                                                    <Clock size={13} className="shrink-0" />
-                                                    <span>{t("estimatedFinish")} {pad(washEndAt.getHours())}:{pad(washEndAt.getMinutes())}</span>
+                                              <div className="flex items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 dark:border-blue-900/60 dark:bg-blue-950/30">
+                                                <div className="min-w-0 flex-1">
+                                                  <div className="flex items-center gap-1 text-[10px] font-semibold text-blue-600 dark:text-blue-300">
+                                                    <Clock size={11} className="shrink-0" />
+                                                    {t("estimatedFinish")} {pad(washEndAt.getHours())}:{pad(washEndAt.getMinutes())}
                                                   </div>
-                                                  <div>
-                                                    <div className="flex items-center gap-1.5 text-[10px] font-semibold text-blue-500 dark:text-blue-400">
-                                                      <Hourglass size={11} className="shrink-0" />
-                                                      <span>{t("washTimeRemaining")}</span>
-                                                    </div>
-                                                    <div className="mt-0.5 font-mono text-xl font-black leading-none text-blue-800 dark:text-blue-100">
-                                                      {`${pad(washH)}:${pad(washM)}:${pad(washS)}`}
-                                                    </div>
+                                                  <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-blue-500 dark:text-blue-400">
+                                                    <Hourglass size={10} className="shrink-0" />
+                                                    {t("washTimeRemaining")}
+                                                  </div>
+                                                  <div className="font-mono text-lg font-black leading-none text-blue-800 dark:text-blue-100">
+                                                    {`${pad(washH)}:${pad(washM)}:${pad(washS)}`}
                                                   </div>
                                                 </div>
-                                                <svg width="60" height="60" viewBox="0 0 100 100" className="shrink-0 -rotate-90" aria-hidden="true">
-                                                  <circle cx="50" cy="50" r="36" fill="none" stroke="currentColor" strokeWidth="10" className="text-blue-100 dark:text-blue-900/60" />
+                                                <svg width="52" height="52" viewBox="0 0 100 100" className="shrink-0 -rotate-90" aria-hidden="true">
+                                                  <circle cx="50" cy="50" r="38" fill="none" stroke="currentColor" strokeWidth="12" className="text-blue-100 dark:text-blue-900/60" />
                                                   <circle
-                                                    cx="50" cy="50" r="36"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    strokeWidth="10"
-                                                    strokeLinecap="round"
-                                                    strokeDasharray="226.2 226.2"
+                                                    cx="50" cy="50" r="38"
+                                                    fill="none" stroke="currentColor" strokeWidth="12" strokeLinecap="round"
+                                                    strokeDasharray="238.76 238.76"
                                                     strokeDashoffset={(() => {
                                                       const totalMs = washEndAt.getTime() - new Date(booking.confirmed_at!).getTime();
                                                       const elapsedMs = now.getTime() - new Date(booking.confirmed_at!).getTime();
                                                       const progress = totalMs > 0 ? Math.max(0, Math.min(1, elapsedMs / totalMs)) : 0;
-                                                      return 226.2 * (1 - progress);
+                                                      return 238.76 * (1 - progress);
                                                     })()}
                                                     className="text-blue-600 dark:text-blue-400"
                                                   />
@@ -1821,44 +1889,31 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                               </div>
                                             ) : null}
                                           </div>
-                                        ) : (
-                                          <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/30">
-                                            <CheckCircle2 size={15} className="shrink-0 text-emerald-600 dark:text-emerald-300" />
-                                            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-200">{t("washLikelyDone")}</span>
-                                          </div>
                                         )}
                                       </div>
+
+                                    /* STATE 1 — before start */
                                     ) : beforeStart ? (
-                                      <div className="text-sm font-semibold text-slate-600 dark:text-gray-300">
+                                      <div className="text-sm font-semibold text-slate-500 dark:text-gray-400">
                                         {t("bookingConfirmWindowOpens").replace("{time}", formatBookingTime(booking.start_time))}
                                       </div>
+
+                                    /* STATE 2 — confirm window open */
                                     ) : canConfirm ? (
-                                      <div className="space-y-3">
+                                      <div className="space-y-2.5">
+                                        {/* Countdown */}
                                         <div className="text-sm font-bold text-orange-700 dark:text-orange-300">
                                           {t("confirmWithin")} {String(remainingMinutes).padStart(2, "0")}:{String(remainingSeconds).padStart(2, "0")}
                                         </div>
+
+                                        {/* Program selector — single element, no duplication */}
                                         {programs.length > 0 && (
-                                          <div className="space-y-2">
-                                            {booking.selected_program_name && (
-                                              <div className="text-xs font-semibold text-slate-600 dark:text-gray-300">
-                                                {t("confirmOriginalProgram")}: <span className="text-blue-700 dark:text-blue-300">{booking.selected_program_name}{booking.selected_program_duration_minutes ? ` · ${booking.selected_program_duration_minutes} min` : ""}</span>
-                                              </div>
-                                            )}
-                                            <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 dark:border-blue-900/60 dark:bg-blue-950/20">
-                                              <div className="text-[11px] font-bold uppercase tracking-wide text-blue-600 dark:text-blue-300">
-                                                {t("confirmSelectedProgram")}
-                                              </div>
-                                              <div className="mt-0.5 text-sm font-bold text-blue-800 dark:text-blue-100">
-                                                {selectedProgram
-                                                  ? `${selectedProgram.name} · ${selectedProgram.duration_minutes} min`
-                                                  : t("programNotSelected")}
-                                              </div>
-                                            </div>
-                                            <label className="block space-y-1.5">
+                                          <div className="space-y-1.5">
+                                            <label className="block space-y-1">
                                               <span className="text-xs font-bold text-slate-500 dark:text-gray-400">{t("confirmChangeProgram")}</span>
                                               <select
                                                 value={selectedProgramName}
-                                                onChange={event => setConfirmProgramSelection(prev => ({ ...prev, [booking.id]: event.target.value }))}
+                                                onChange={e => setConfirmProgramSelection(prev => ({ ...prev, [booking.id]: e.target.value }))}
                                                 className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-gray-700 dark:bg-gray-950 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-950"
                                               >
                                                 {!selectedProgram && <option value="">{t("confirmSelectProgram")}</option>}
@@ -1872,62 +1927,49 @@ const generateAdminInviteCode = async (territoryId: string) => {
                                                 })}
                                               </select>
                                             </label>
-                                            <div className="text-xs text-slate-400 dark:text-gray-500">
-                                              {t("confirmProgramHint")}
-                                            </div>
+                                            <div className="text-xs text-slate-400 dark:text-gray-500">{t("confirmProgramHint")}</div>
                                           </div>
                                         )}
+
                                         {occupiedBookingId === booking.id ? (
                                           <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 dark:border-orange-900/60 dark:bg-orange-950/20">
                                             <div className="mb-2 text-xs font-bold text-orange-700 dark:text-orange-300">{t("occupiedTitle")}</div>
                                             <div className="flex flex-col gap-2">
-                                              <button
-                                                type="button"
-                                                onClick={() => void reportOccupied(booking.id, "extend")}
-                                                className="rounded-md border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 transition hover:bg-blue-50 dark:border-blue-800 dark:bg-gray-900 dark:text-blue-300"
-                                              >
+                                              <button type="button" onClick={() => void reportOccupied(booking.id, "extend")}
+                                                className="rounded-md border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 transition hover:bg-blue-50 dark:border-blue-800 dark:bg-gray-900 dark:text-blue-300">
                                                 {t("occupiedExtend")}
                                               </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => void reportOccupied(booking.id, "rebook")}
-                                                className="rounded-md border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-800 dark:bg-gray-900 dark:text-emerald-300"
-                                              >
+                                              <button type="button" onClick={() => void reportOccupied(booking.id, "rebook")}
+                                                className="rounded-md border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-800 dark:bg-gray-900 dark:text-emerald-300">
                                                 {t("occupiedRebook")}
                                               </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => setOccupiedBookingId(null)}
-                                                className="text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-gray-400 dark:hover:text-gray-200"
-                                              >
+                                              <button type="button" onClick={() => setOccupiedBookingId(null)}
+                                                className="text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-gray-400 dark:hover:text-gray-200">
                                                 {t("back")}
                                               </button>
                                             </div>
                                           </div>
                                         ) : (
-                                          <>
+                                          <div className="space-y-2">
                                             <button
                                               type="button"
-                                              onClick={() => void confirmWash(
-                                                booking.id,
-                                                selectedProgram?.name || "",
-                                                selectedProgram?.duration_minutes || 0
-                                              )}
+                                              onClick={() => void confirmWash(booking.id, selectedProgram?.name || "", selectedProgram?.duration_minutes || 0)}
                                               disabled={programs.length > 0 && !selectedProgram}
-                                              className="h-9 w-full rounded-md bg-blue-600 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-gray-700"
+                                              className="h-10 w-full rounded-lg bg-blue-600 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-gray-700"
                                             >
                                               {t("confirmBooking")}
                                             </button>
                                             <button
                                               type="button"
                                               onClick={() => setOccupiedBookingId(booking.id)}
-                                              className="h-9 w-full rounded-md border border-orange-300 bg-orange-50 text-xs font-bold text-orange-700 transition hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/20 dark:text-orange-300 dark:hover:bg-orange-950/40"
+                                              className="h-9 w-full rounded-lg border border-orange-300 bg-orange-50 text-xs font-bold text-orange-700 transition hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/20 dark:text-orange-300"
                                             >
                                               {t("occupiedButton")}
                                             </button>
-                                          </>
+                                          </div>
                                         )}
                                       </div>
+
                                     ) : (
                                       <div className="text-sm font-semibold text-red-600 dark:text-red-300">
                                         {t("bookingConfirmWindowExpired")}
@@ -1938,11 +1980,13 @@ const generateAdminInviteCode = async (territoryId: string) => {
                               })()}
                             </div>
                           </div>
+
+                          {/* ── Cancel button — top-right ─────────────── */}
                           <button
                             type="button"
                             onClick={() => void cancelBooking(booking.id)}
                             disabled={cancellingBookingId === booking.id}
-                            className="inline-flex h-11 items-center justify-center rounded-lg border border-red-200 bg-white px-4 text-sm font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900/70 dark:bg-gray-950 dark:text-red-300 dark:hover:bg-red-950/30"
+                            className="mt-3 h-9 rounded-lg border border-red-200 bg-white px-4 text-sm font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 lg:ml-4 lg:mt-0 dark:border-red-900/70 dark:bg-gray-950 dark:text-red-300 dark:hover:bg-red-950/30"
                           >
                             {cancellingBookingId === booking.id ? t("cancelling") : t("cancel")}
                           </button>
@@ -2101,6 +2145,60 @@ const generateAdminInviteCode = async (territoryId: string) => {
                 ))}
               </div>
             </section>
+          ) : !isAdminRole && isUserInfoPage ? (
+            <section className="w-full space-y-6">
+              <div className="flex flex-col gap-2">
+                <h1 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white sm:text-4xl xl:text-5xl">
+                  {t("landingHelpTitle")}
+                </h1>
+                <p className="text-base font-semibold text-slate-600 dark:text-gray-300">
+                  {t("landingHelpSubtitle")}
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {(() => {
+                  const hasTerritories = userTerritoriesCount != null && userTerritoriesCount > 0;
+                  const locationCard = ["howItWorks2Title", "howItWorks2Text"] as const;
+                  const rest = [
+                    ["howItWorks4Title", "howItWorks4Text"],
+                    ["howItWorks5Title", "howItWorks5Text"],
+                    ["howItWorks6Title", "howItWorks6Text"],
+                    ["howItWorks7Title", "howItWorks7Text"],
+                    ["howItWorks8Title", "howItWorks8Text"],
+                    ["howItWorks9Title", "howItWorks9Text"],
+                    ["howItWorks10Title", "howItWorks10Text"],
+                    ["howItWorks12Title", "howItWorks12Text"],
+                    ["howItWorks13Title", "howItWorks13Text"],
+                  ] as const;
+                  const cards: { titleKey: string; textKey: string; done: boolean }[] = hasTerritories
+                    ? [
+                        ...rest.map(([titleKey, textKey]) => ({ titleKey, textKey, done: false })),
+                        { titleKey: locationCard[0], textKey: locationCard[1], done: true },
+                      ]
+                    : [
+                        { titleKey: locationCard[0], textKey: locationCard[1], done: false },
+                        ...rest.map(([titleKey, textKey]) => ({ titleKey, textKey, done: false })),
+                      ];
+                  return cards.map(({ titleKey, textKey, done }) => (
+                    <div
+                      key={titleKey}
+                      className={`rounded-xl border p-5 transition-colors ${done ? "border-slate-200 bg-slate-50 dark:border-gray-700 dark:bg-gray-800/60" : "border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-900"}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className={`font-semibold ${done ? "text-slate-400 dark:text-gray-500" : "text-slate-900 dark:text-white"}`}>{t(titleKey)}</p>
+                        {done && (
+                          <span className="flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-400 dark:bg-gray-700 dark:text-gray-500">
+                            <CheckCircle2 size={12} />
+                            {lang === "pl" ? "Gotowe" : "Done"}
+                          </span>
+                        )}
+                      </div>
+                      <p className={`mt-2 text-sm leading-6 ${done ? "text-slate-300 dark:text-gray-600" : "text-slate-500 dark:text-gray-400"}`}>{t(textKey)}</p>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </section>
           ) : (isTerritoriesPage || userTerritoriesCount === 0) && !isAdminRole ? (
             <section className="w-full space-y-6">
               <div>
@@ -2193,9 +2291,16 @@ const generateAdminInviteCode = async (territoryId: string) => {
         </main>
       </div>
       {appNotice && (
-        <div className="fixed left-1/2 top-20 z-[120] w-[min(520px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 shadow-lg dark:border-emerald-900/60 dark:bg-emerald-950 dark:text-emerald-200">
+        <div className={`fixed left-1/2 top-20 z-[120] w-[min(520px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border px-4 py-3 text-sm font-semibold shadow-lg ${
+          appNoticeType === "notification"
+            ? "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800/60 dark:bg-blue-950 dark:text-blue-200"
+            : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950 dark:text-emerald-200"
+        }`}>
           <div className="flex items-start gap-3">
-            <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+            {appNoticeType === "notification"
+              ? <Bell size={18} className="mt-0.5 shrink-0" />
+              : <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+            }
             <span>{appNotice}</span>
           </div>
         </div>
@@ -2297,6 +2402,23 @@ const generateAdminInviteCode = async (territoryId: string) => {
               ))
             )}
           </div>
+          {typeof Notification !== "undefined" && Notification.permission === "default" && (
+            <div className="border-t border-slate-100 px-3 pb-2 pt-3 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={() => void Notification.requestPermission()}
+                className="flex w-full items-center gap-2 rounded-lg bg-blue-50 px-3 py-2.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-900/40"
+              >
+                <Bell size={15} />
+                {t("enableBrowserNotifications")}
+              </button>
+            </div>
+          )}
+          {typeof Notification !== "undefined" && Notification.permission === "denied" && (
+            <div className="border-t border-slate-100 px-4 py-2 dark:border-gray-800">
+              <p className="text-xs text-slate-400 dark:text-gray-500">{t("browserNotificationsDenied")}</p>
+            </div>
+          )}
           <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 dark:border-gray-800">
             {!showAllNotifications ? (
               <button type="button" onClick={openAllNotifications} className="text-sm font-semibold text-blue-700 dark:text-blue-300">
@@ -2323,10 +2445,12 @@ const generateAdminInviteCode = async (territoryId: string) => {
           </>
         ) : (
           <>
-            {userTerritoriesCount != null && userTerritoriesCount !== 0 && renderBottomNavItem(Home, t("navDashboard"), !isNotificationsPage && !isBookingsPage && !isTerritoriesPage, () => navigateTo("/"))}
+            {userTerritoriesCount != null && userTerritoriesCount !== 0 && renderBottomNavItem(Home, t("navDashboard"), !isNotificationsPage && !isBookingsPage && !isTerritoriesPage && !isUserInfoPage, () => navigateTo("/"))}
             {userTerritoriesCount != null && userTerritoriesCount !== 0 && renderBottomNavItem(CalendarClock, t("navMyBookings"), isBookingsPage, () => navigateTo("/bookings"))}
             {userTerritoriesCount != null && userTerritoriesCount !== 0 && renderBottomNavItem(Bell, t("navNotifications"), isNotificationsPage, openAllNotifications, unreadNotifications)}
             {renderBottomNavItem(MapPin, t("navTerritories"), isTerritoriesPage || userTerritoriesCount === 0, () => navigateTo("/territories"))}
+            <div className="w-px self-stretch my-2 bg-slate-200 dark:bg-gray-700" />
+            {renderBottomNavItem(Info, t("navGuide"), isUserInfoPage, () => navigateTo("/info"))}
           </>
         )}
       </nav>
@@ -2407,19 +2531,25 @@ const generateAdminInviteCode = async (territoryId: string) => {
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button
                 onClick={openSignUp}
-                className="h-14 rounded-xl bg-blue-600 px-10 text-lg font-bold text-white shadow-md transition hover:bg-blue-700"
+                className="h-14 rounded-xl bg-blue-600 px-10 text-lg font-bold text-white shadow-md transition hover:bg-blue-700 dark:hover:bg-blue-500"
               >
                 {t("heroPrimaryCta")}
               </button>
               <button
                 onClick={openSignIn}
-                className="h-14 rounded-xl border border-slate-300 bg-white px-10 text-lg font-semibold text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                className="h-14 rounded-xl border border-slate-300 bg-white px-10 text-lg font-semibold text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-600 dark:hover:text-blue-300"
               >
                 {t("heroSecondaryCta")}
               </button>
             </div>
             <button
-              onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
+              onClick={() => {
+                const el = document.getElementById("how-it-works");
+                if (el) {
+                  const top = el.getBoundingClientRect().top + window.scrollY - 80;
+                  window.scrollTo({ top, behavior: "smooth" });
+                }
+              }}
               className="mt-2 text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
             >
               {t("landingHeroCtaHowItWorks")}
@@ -2427,7 +2557,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
           </div>
         </section>
 
-        <section className="mb-20 rounded-2xl bg-slate-50 px-6 py-10 dark:bg-gray-800/50 sm:px-10">
+        <section data-reveal className="mb-20 rounded-2xl bg-slate-50 px-6 py-10 dark:bg-gray-800/50 sm:px-10">
           <h2 className="mb-4 text-2xl font-bold text-slate-900 dark:text-white sm:text-3xl">
             {t("landingAboutTitle")}
           </h2>
@@ -2438,7 +2568,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
           </div>
         </section>
 
-        <section id="how-it-works" className="mb-20">
+        <section id="how-it-works" data-reveal className="mb-20">
           <h2 className="mb-8 text-center text-2xl font-bold text-slate-900 dark:text-white sm:text-3xl">
             {t("landingStepsTitle")}
           </h2>
@@ -2454,7 +2584,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
             ] as const).map(([titleKey, textKey], idx) => (
               <li
                 key={idx}
-                className="flex gap-4 rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900"
+                className={`flex gap-4 rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900${idx === 6 ? " lg:col-start-2" : ""}`}
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
                   {idx + 1}
@@ -2468,48 +2598,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
           </ol>
         </section>
 
-        <section className="mb-20">
-          <div className="mb-8 text-center">
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white sm:text-3xl">
-              {t("landingHelpTitle")}
-            </h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm font-medium leading-6 text-slate-500 dark:text-gray-400">
-              {t("landingHelpSubtitle")}
-            </p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {([
-              ["howItWorks2Title", "howItWorks2Text"],
-              ["howItWorks4Title", "howItWorks4Text"],
-              ["howItWorks5Title", "howItWorks5Text"],
-              ["howItWorks6Title", "howItWorks6Text"],
-              ["howItWorks7Title", "howItWorks7Text"],
-              ["howItWorks8Title", "howItWorks8Text"],
-              ["howItWorks9Title", "howItWorks9Text"],
-              ["howItWorks10Title", "howItWorks10Text"],
-              ["howItWorks12Title", "howItWorks12Text"],
-              ["howItWorks13Title", "howItWorks13Text"],
-            ] as const).map(([titleKey, textKey], idx) => (
-              <article
-                key={idx}
-                tabIndex={0}
-                className="group rounded-xl border border-slate-200 bg-white p-5 outline-none transition hover:border-blue-200 hover:shadow-md focus:border-blue-300 focus:shadow-md dark:border-gray-700 dark:bg-gray-900 dark:hover:border-blue-800 dark:focus:border-blue-700"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-semibold text-slate-900 dark:text-white">{t(titleKey)}</p>
-                  <span className="text-xs font-semibold text-blue-600 opacity-80 dark:text-blue-300">
-                    {t("landingHelpReveal")}
-                  </span>
-                </div>
-                <p className="mt-2 max-h-0 overflow-hidden text-sm leading-6 text-slate-500 opacity-0 transition-all duration-200 group-hover:max-h-56 group-hover:opacity-100 group-focus:max-h-56 group-focus:opacity-100 dark:text-gray-400">
-                  {t(textKey)}
-                </p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="mb-20 rounded-2xl bg-blue-50 px-6 py-10 dark:bg-blue-950/30 sm:px-10">
+        <section data-reveal className="mb-20 rounded-2xl bg-blue-50 px-6 py-10 dark:bg-blue-950/30 sm:px-10">
           <h2 className="mb-6 text-2xl font-bold text-slate-900 dark:text-white sm:text-3xl">
             {t("landingBenefitsTitle")}
           </h2>
@@ -2530,7 +2619,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
           </ul>
         </section>
 
-        <section className="mb-24 rounded-2xl border border-slate-200 bg-white px-6 py-10 dark:border-gray-700 dark:bg-gray-900 sm:px-10">
+        <section data-reveal className="mb-24 rounded-2xl border border-slate-200 bg-white px-6 py-10 dark:border-gray-700 dark:bg-gray-900 sm:px-10">
           <h2 className="mb-3 text-2xl font-bold text-slate-900 dark:text-white sm:text-3xl">
             {t("landingAdminSectionTitle")}
           </h2>

@@ -123,6 +123,23 @@ class AdminTerritoryDetailView(APIView):
         territory = get_object_or_404(Territory, pk=pk)
         if not admin_can_manage_territory(request.user, territory):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        # When switching to simple mode, cancel all active bookings first (before zone deletion cascades)
+        new_simple_mode = request.data.get("simple_mode")
+        if new_simple_mode is True and not territory.simple_mode:
+            for zone in territory.zones.all():
+                for machine in zone.machines.all():
+                    for booking in machine.bookings.filter(status=Booking.STATUS_ACTIVE):
+                        cancel_booking_with_history(
+                            booking=booking,
+                            changed_by=None,
+                            note="territory_mode_changed",
+                            notification_type=UserNotification.TYPE_BOOKING_CANCELLED,
+                            title="Rezerwacja anulowana",
+                            message=(
+                                f"Pralka #{booking.machine.number} ({territory.name}): "
+                                f"rezerwacja anulowana — administrator zmienił tryb rezerwacji."
+                            ),
+                        )
         serializer = TerritorySerializer(instance=territory, data=request.data, partial=True, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -591,10 +608,11 @@ def ensure_booking_time_notifications(user):
     ).filter(user=user, status=Booking.STATUS_ACTIVE)
 
     for booking in active_bookings:
-        # Fallback no-show cancel: catches bookings whose Celery task was lost
+        # Fallback no-show cancel: catches bookings whose Celery task was lost.
+        # Use deadline_minutes + 1 grace period to avoid racing with the user's confirm click.
         if booking.confirmed_at is None and booking.start_time <= now:
             deadline_minutes = 45 if booking.confirmation_extended else 15
-            if now > booking.start_time + timedelta(minutes=deadline_minutes):
+            if now > booking.start_time + timedelta(minutes=deadline_minutes + 1):
                 territory = booking.machine.zone.territory
                 cancel_booking_with_history(
                     booking=booking,
@@ -624,20 +642,31 @@ def ensure_booking_time_notifications(user):
                 message=f"Pralka #{booking.machine.number}: zaczyna się o {format_booking_time_for_user(booking, booking.start_time)}",
             )
         if booking.end_time <= now:
-            create_booking_notification(
-                user=user,
-                booking=booking,
-                notification_type=UserNotification.TYPE_BOOKING_ENDED,
-                title="Slot zakończony",
-                message=f"Pralka #{booking.machine.number}: slot zakończył się o {format_booking_time_for_user(booking, booking.end_time)}",
-            )
+            if booking.confirmed_at and not booking.estimated_wash_end_at:
+                # Confirmed booking without estimated end time (e.g. simple mode):
+                # treat slot end as wash completion so user gets a "collect laundry" alert.
+                create_booking_notification(
+                    user=user,
+                    booking=booking,
+                    notification_type=UserNotification.TYPE_WASH_COMPLETED,
+                    title="Pranie prawdopodobnie zakończone",
+                    message=f"Pralka #{booking.machine.number}: czas na odbiór prania.",
+                )
+            else:
+                create_booking_notification(
+                    user=user,
+                    booking=booking,
+                    notification_type=UserNotification.TYPE_BOOKING_ENDED,
+                    title="Slot zakończony",
+                    message=f"Pralka #{booking.machine.number}: slot zakończył się o {format_booking_time_for_user(booking, booking.end_time)}",
+                )
         if booking.estimated_wash_end_at and booking.estimated_wash_end_at <= now:
             create_booking_notification(
                 user=user,
                 booking=booking,
                 notification_type=UserNotification.TYPE_WASH_COMPLETED,
                 title="Pranie zakończone",
-                message=f"Pralka #{booking.machine.number}: szacowany czas prania dobiegł końca",
+                message=f"Pralka #{booking.machine.number}: szacowany czas prania dobiegł końca — odbierz pranie.",
             )
 
 

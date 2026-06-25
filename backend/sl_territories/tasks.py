@@ -20,6 +20,12 @@ def auto_cancel_unconfirmed_booking(booking_id: int) -> None:
     if booking.confirmed_at is not None:
         return
 
+    # Bail out if the cancellation deadline hasn't passed yet — this guards against
+    # CELERY_TASK_ALWAYS_EAGER=True (dev mode) which ignores the eta and fires immediately.
+    deadline = booking.start_time + timedelta(minutes=15)
+    if timezone.now() < deadline:
+        return
+
     # If user extended the confirmation window, give them 30 more minutes
     if booking.confirmation_extended:
         extended_deadline = booking.start_time + timedelta(minutes=45)

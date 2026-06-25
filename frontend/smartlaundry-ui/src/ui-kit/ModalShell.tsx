@@ -106,7 +106,7 @@ export function ModalShell({ open, onClose, children, panelClassName, size = "md
   // на iOS когда открывается клавиатура: позиция модала не зависит от высоты viewport
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] overflow-y-auto bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] overflow-hidden bg-black/50 backdrop-blur-sm"
       onClick={onClose}
     >
       <div className={`flex min-h-full justify-center ${alignmentClass}`}>

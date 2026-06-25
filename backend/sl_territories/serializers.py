@@ -62,7 +62,7 @@ class TerritorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Territory
-        fields = ("id", "name", "code", "slot_strategy", "booking_slot_minutes", "zones")
+        fields = ("id", "name", "code", "slot_strategy", "booking_slot_minutes", "simple_mode", "simple_slot_durations", "zones")
 
     def create(self, validated_data):
         zones_data = validated_data.pop("zones", [])
@@ -102,7 +102,9 @@ class TerritorySerializer(serializers.ModelSerializer):
         zones_data = validated_data.pop("zones", [])
         instance.name = validated_data.get("name", instance.name)
         instance.slot_strategy = validated_data.get("slot_strategy", instance.slot_strategy)
-        instance.save(update_fields=["name", "slot_strategy"])
+        instance.simple_mode = validated_data.get("simple_mode", instance.simple_mode)
+        instance.simple_slot_durations = validated_data.get("simple_slot_durations", instance.simple_slot_durations)
+        instance.save(update_fields=["name", "slot_strategy", "simple_mode", "simple_slot_durations"])
 
         instance.zones.all().delete()
         for idx, zone_data in enumerate(zones_data):
@@ -153,6 +155,7 @@ class BookingSerializer(serializers.ModelSerializer):
     zone_name = serializers.CharField(source="machine.zone.name", read_only=True)
     zone_description = serializers.CharField(source="machine.zone.description", read_only=True)
     territory_name = serializers.CharField(source="machine.zone.territory.name", read_only=True)
+    territory_simple_mode = serializers.BooleanField(source="machine.zone.territory.simple_mode", read_only=True)
     client_timezone_offset = serializers.IntegerField(write_only=True, required=False)
     selected_program_name = serializers.CharField(required=False, allow_blank=True)
     selected_program_duration_minutes = serializers.IntegerField(required=False, allow_null=True)
@@ -168,6 +171,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "zone_name",
             "zone_description",
             "territory_name",
+            "territory_simple_mode",
             "user",
             "start_time",
             "end_time",

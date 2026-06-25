@@ -1,6 +1,9 @@
+import threading
 from datetime import timedelta
+from unittest.mock import Mock
 
-from django.test import SimpleTestCase, TestCase
+from django.db import connection
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 
 from .instruction_parser import (
@@ -449,3 +452,106 @@ class BookingIntegrationTests(TestCase):
         access.penalty_until = timezone.now() + timedelta(days=3)
         access.save()
         self.assertEqual(access.effective_booking_limit(), 1)
+
+
+class ConcurrentBookingTests(TransactionTestCase):
+    """Test that select_for_update prevents double-booking under simultaneous requests."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+
+        self.user1 = User.objects.create_user(email="concurrent1@test.com", password="pass")
+        self.user1.is_active = True
+        self.user1.save()
+
+        self.user2 = User.objects.create_user(email="concurrent2@test.com", password="pass")
+        self.user2.is_active = True
+        self.user2.save()
+
+        self.territory = Territory.objects.create(name="Concurrent Building", code="CONC01")
+        self.zone = Zone.objects.create(territory=self.territory, name="Floor 1", order=0)
+        self.machine = Machine.objects.create(zone=self.zone, number=1)
+        TerritoryAccess.objects.create(user=self.user1, territory=self.territory)
+        TerritoryAccess.objects.create(user=self.user2, territory=self.territory)
+
+    def _try_book(self, user, start, end, results, barrier):
+        connection.close()
+        try:
+            barrier.wait()
+            request = Mock()
+            request.user = user
+            s = BookingSerializer(
+                data={
+                    "machine": self.machine.id,
+                    "start_time": start.isoformat(),
+                    "end_time": end.isoformat(),
+                    "client_timezone_offset": 0,
+                },
+                context={"request": request},
+            )
+            if s.is_valid():
+                s.save()
+                results.append("success")
+            else:
+                results.append("rejected")
+        except Exception as e:
+            results.append(f"error: {e}")
+        finally:
+            connection.close()
+
+    def test_only_one_booking_wins_race(self):
+        """Two users simultaneously try to book the same slot — exactly one must succeed."""
+        start, end = _slot(self.machine.number, slot_index=0)
+        results = []
+        barrier = threading.Barrier(2)
+
+        threads = [
+            threading.Thread(target=self._try_book, args=(self.user1, start, end, results, barrier)),
+            threading.Thread(target=self._try_book, args=(self.user2, start, end, results, barrier)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        successes = [r for r in results if r == "success"]
+        self.assertEqual(
+            len(successes), 1,
+            f"Expected exactly 1 successful booking, got results: {results}",
+        )
+        self.assertEqual(Booking.objects.count(), 1)
+
+    @staticmethod
+    def _is_sqlite():
+        return connection.vendor == "sqlite"
+
+    def test_different_slots_all_succeed(self):
+        """Two users booking different slots on the same machine — both must succeed.
+
+        SQLite uses table-level locking so this test only runs on PostgreSQL,
+        which supports row-level locking via SELECT FOR UPDATE.
+        """
+        if self._is_sqlite():
+            self.skipTest("SQLite uses table-level locking — run against PostgreSQL to test true concurrency")
+
+        start1, end1 = _slot(self.machine.number, slot_index=0)
+        start2, end2 = _slot(self.machine.number, slot_index=1)
+        results = []
+        barrier = threading.Barrier(2)
+
+        threads = [
+            threading.Thread(target=self._try_book, args=(self.user1, start1, end1, results, barrier)),
+            threading.Thread(target=self._try_book, args=(self.user2, start2, end2, results, barrier)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        successes = [r for r in results if r == "success"]
+        self.assertEqual(
+            len(successes), 2,
+            f"Expected both bookings to succeed, got results: {results}",
+        )
+        self.assertEqual(Booking.objects.count(), 2)

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { X, CheckCircle2, AlertCircle, Upload, ExternalLink, ChevronDown, ListChecks, Lock, BookOpen } from "lucide-react";
+import { X, CheckCircle2, AlertCircle, Upload, ExternalLink, ChevronDown, ListChecks, Lock, BookOpen, ToggleLeft, ToggleRight } from "lucide-react";
 import { ModalShell } from "../../ui-kit/ModalShell";
 import { useI18n } from "../../app-shell/i18n-context";
 import { apiClient } from "../../shared/apiClient";
@@ -126,6 +126,8 @@ export type Territory = {
   code: string;
   slot_strategy?: "auto" | "fixed_120";
   booking_slot_minutes?: number;
+  simple_mode?: boolean;
+  simple_slot_durations?: number[];
   zones: number;
   machinesPerZone: number[];
   zoneDescriptions?: string[];
@@ -259,6 +261,9 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
   const [machinesPerZone, setMachinesPerZone] = useState<number[]>([1]);
   const [zoneDescriptions, setZoneDescriptions] = useState<string[]>([""]);
   const [machines, setMachines] = useState<MachineInfo[]>([]);
+  const [simpleMode, setSimpleMode] = useState(false);
+  const [simpleSlotDurations, setSimpleSlotDurations] = useState<number[]>([30, 60, 120]);
+  const [simpleModeConfirmOpen, setSimpleModeConfirmOpen] = useState(false);
   const [errors, setErrors] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -276,6 +281,9 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
         { id: "m-0-1", zoneIndex: 0, number: 1, model: "", found: false, programs: [] },
       ]);
       setZoneDescriptions([""]);
+      setSimpleMode(false);
+      setSimpleSlotDurations([30, 60, 120]);
+      setSimpleModeConfirmOpen(false);
       setExpandedPrograms({});
       setErrors(null);
       setSaving(false);
@@ -293,6 +301,13 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
         ? initial.zoneDescriptions
         : Array.from({ length: initial.zones }).map(() => "")
     );
+    setSimpleMode(initial.simple_mode ?? false);
+    setSimpleSlotDurations(
+      initial.simple_slot_durations && initial.simple_slot_durations.length >= 1
+        ? initial.simple_slot_durations
+        : [30, 60, 120]
+    );
+    setSimpleModeConfirmOpen(false);
     setExpandedPrograms({});
     setErrors(null);
     setSaving(false);
@@ -403,6 +418,8 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
       name: name.trim(),
       code,
       slot_strategy: "auto",
+      simple_mode: simpleMode,
+      simple_slot_durations: simpleMode ? simpleSlotDurations.filter(d => d > 0) : [],
       zones: zonesCount,
       machinesPerZone,
       zoneDescriptions,
@@ -545,6 +562,113 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
 
         <StepSection step={3} highestStep={highestStep}>
           <StepTitle number={3} title={t("territoryMachinesTitle")} done={highestStep > 3} locked={isLocked(3)} />
+
+          {/* Mode toggle */}
+          <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-gray-700 dark:bg-gray-950/50">
+            <div className="mb-2 text-sm font-bold text-slate-700 dark:text-gray-200">{t("simpleModeLabel")}</div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => {
+                  if (simpleMode && initial) { setSimpleModeConfirmOpen(true); return; }
+                  setSimpleMode(false);
+                }}
+                className={`flex flex-1 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
+                  !simpleMode
+                    ? "border-blue-600 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-300"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                }`}
+              >
+                {!simpleMode ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                {t("simpleModeWithPrograms")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!simpleMode && initial) { setSimpleModeConfirmOpen(true); return; }
+                  setSimpleMode(true);
+                }}
+                className={`flex flex-1 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
+                  simpleMode
+                    ? "border-emerald-600 bg-emerald-50 text-emerald-700 dark:border-emerald-500 dark:bg-emerald-950/30 dark:text-emerald-300"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                }`}
+              >
+                {simpleMode ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                {t("simpleModeSimple")}
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-slate-500 dark:text-gray-400">{t("simpleModeDescription")}</p>
+          </div>
+
+          {/* Simple mode confirmation for existing territory */}
+          {simpleModeConfirmOpen && (
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/20">
+              <p className="text-sm font-bold text-amber-800 dark:text-amber-200">{t("simpleModeChangeWarning")}</p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSimpleModeConfirmOpen(false)}
+                  className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-50 dark:border-amber-700 dark:bg-gray-900 dark:text-amber-200"
+                >
+                  {t("authBack")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSimpleMode(!simpleMode); setSimpleModeConfirmOpen(false); }}
+                  className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700"
+                >
+                  {t("simpleModeConfirmSwitch")}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {simpleMode ? (
+            /* Simple mode: slot duration inputs */
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-2">
+                  {t("simpleModeSlotDurationsLabel")}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {simpleSlotDurations.map((dur, idx) => (
+                    <div key={idx} className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900">
+                      <span className="text-xs font-semibold text-slate-500 dark:text-gray-400">#{idx + 1}</span>
+                      <NumericInput
+                        value={dur}
+                        min={10}
+                        onChange={val => setSimpleSlotDurations(prev => { const next = [...prev]; next[idx] = val; return next; })}
+                        className="w-16 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-center text-sm font-bold dark:border-gray-700 dark:bg-gray-800"
+                      />
+                      <span className="text-xs text-slate-400 dark:text-gray-500">{t("simpleModeUserDurationMinutes")}</span>
+                      {simpleSlotDurations.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setSimpleSlotDurations(prev => prev.filter((_, i) => i !== idx))}
+                          className="ml-0.5 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {simpleSlotDurations.length < 6 && (
+                    <button
+                      type="button"
+                      onClick={() => setSimpleSlotDurations(prev => [...prev, 60])}
+                      className="rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:border-slate-400 hover:text-slate-700 dark:border-gray-600 dark:text-gray-400"
+                    >
+                      + slot
+                    </button>
+                  )}
+                </div>
+                <p className="mt-2 text-xs text-slate-500 dark:text-gray-400">
+                  {t("simpleModeSlotPatternHint").replace("{pattern}", simpleSlotDurations.map(d => `${d}min`).join(" → "))}
+                </p>
+              </div>
+            </div>
+          ) : (
           <div className="space-y-3">
             {Array.from({ length: zonesCount }).map((_, zoneIdx) => {
               const zoneMachines = machines.filter(m => m.zoneIndex === zoneIdx);
@@ -663,6 +787,7 @@ export function TerritoryFormModal({ open, onClose, initial, onSave, onDelete, r
               );
             })}
           </div>
+          )} {/* end normal-mode branch */}
           <ContinueButton step={3} highestStep={highestStep} advanceTo={advanceTo} label={continueLabel} />
         </StepSection>
 

@@ -31,6 +31,8 @@ type Territory = {
   code: string;
   slot_strategy?: "auto" | "fixed_120";
   booking_slot_minutes?: number;
+  simple_mode?: boolean;
+  simple_slot_durations?: number[];
   zones: Zone[];
 };
 type TerritoryAccessResponse = { territory?: Territory | null };
@@ -185,6 +187,7 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
   const [current, setCurrent] = useState<Territory | null>(null);
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
   const [selectedProgram, setSelectedProgram] = useState<string>("");
+  const [simpleDuration, setSimpleDuration] = useState<number | null>(null);
   const [startCandidate, setStartCandidate] = useState<Date | null>(null);
   const [pendingBooking, setPendingBooking] = useState<PendingBooking | null>(null);
   const [bookingConfirmation, setBookingConfirmation] = useState<BookingConfirmation | null>(null);
@@ -476,6 +479,7 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     setSelectedMachineId(machineId);
     setHighlightedMachineId(null);
     setSelectedProgram("");
+    setSimpleDuration(null);
     const slotMinutes = current?.booking_slot_minutes || 120;
     const base = isSameDay(selectedDayStart, startOfToday()) ? new Date() : selectedDayStart;
     setStartCandidate(ceilToBookingSlot(base, slotMinutes));
@@ -499,6 +503,7 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
   const handleBackToList = (options?: { replaceHistory?: boolean }) => {
     setSelectedMachineId(null);
     setSelectedProgram("");
+    setSimpleDuration(null);
     setStartCandidate(null);
     setPendingBooking(null);
     setBookingConfirmation(null);
@@ -576,9 +581,13 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
   const userActiveBookingsCount = userWindowBookings.length;
   const bookingLimitReached = userActiveBookingsCount >= 3;
 
-  // Parzyste pralki mają odwrócony wzorzec — wyrównuje obciążenie między maszynami
-  const getMachineSlotPattern = (machine: Machine) =>
-    machine.number % 2 === 0 ? OPPOSITE_SLOT_PATTERN_MINUTES : SLOT_PATTERN_MINUTES;
+  // In simple mode use territory-defined slot durations; else stagger odd/even machines for load balancing
+  const getMachineSlotPattern = (machine: Machine) => {
+    if (current?.simple_mode && current.simple_slot_durations && current.simple_slot_durations.length > 0) {
+      return current.simple_slot_durations;
+    }
+    return machine.number % 2 === 0 ? OPPOSITE_SLOT_PATTERN_MINUTES : SLOT_PATTERN_MINUTES;
+  };
 
   // Sprawdza czy nikt nie ma rezerwacji nakładającej się na podany czas.
   // withBufferEnd dodaje bufor do końca istniejącej rezerwacji (zaokrągla w górę do 30 min)
@@ -630,12 +639,6 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     }
     const slotIndex = slots.findIndex(item => item.start.getTime() === slot.start.getTime());
     if (slotIndex < 0) return null;
-    // Starting from a short slot: only allow if this slot + the next one already covers
-    // the program (avoids 1+1+2 h patterns — prefer 1+2 or 2+2 instead)
-    if (slot.duration === SHORT_SLOT_MINUTES) {
-      const next = slots[slotIndex + 1];
-      if (!next || next.state !== "free" || slot.duration + next.duration < durationMinutes) return null;
-    }
     const coveredSlots: BookingSlot[] = [];
     let coveredMinutes = 0;
     let expectedStart = slot.start.getTime();
@@ -653,7 +656,12 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
 
   const findNextAvailableSlot = (machine: Machine, durationMinutes: number) => {
     const slots = getSlotsForMachine(machine);
-    return slots.find(slot => getCoveredSlotsForProgram(slots, slot, durationMinutes) !== null)?.start || null;
+    const candidates = slots
+      .map(slot => { const covered = getCoveredSlotsForProgram(slots, slot, durationMinutes); return covered ? { slot, total: covered.reduce((s, c) => s + c.duration, 0) } : null; })
+      .filter((x): x is { slot: BookingSlot; total: number } => x !== null);
+    if (!candidates.length) return null;
+    const minTotal = Math.min(...candidates.map(x => x.total));
+    return candidates.find(x => x.total === minTotal)?.slot.start ?? null;
   };
 
   // Jeśli bieżący slot jest wolny i zostało w nim ≥30 min → zwróć teraz (można zacząć od razu).
@@ -898,6 +906,18 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     return slot ? { start: slot.start, end: slot.end } : null;
   };
 
+  // Конец непрерывной незабронированной полосы от текущего момента.
+  // Если машина сейчас в слоте "current" (последний слот дня), возвращает его конец.
+  const getFreeUntilTime = (machine: Machine): Date | null => {
+    let freeEnd: Date | null = null;
+    for (const s of getSlotsForMachine(machine)) {
+      if (s.state === "past") continue;
+      if (s.state === "booked") break;
+      freeEnd = s.end; // current или free
+    }
+    return freeEnd;
+  };
+
   const getZoneDisplayName = (zone?: Zone) => {
     if (!zone) return t("territoryZoneLabel");
     const baseName = (zone.name || `${t("territoryZoneLabel")} ${zone.id}`).trim();
@@ -940,7 +960,7 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     const availabilityInfo = unavailable || status === "user_booking"
       ? null
       : status === "free_now"
-      ? { label: t("machineCurrentSlotEnd").replace("{time}", nextFree ? formatTimeLabel(nextFree.end) : ""), valueClass: "text-emerald-600 dark:text-emerald-300" }
+      ? { label: t("machineCurrentSlotEnd").replace("{time}", formatTimeLabel(getFreeUntilTime(machine) ?? nextFree?.end ?? new Date())), valueClass: "text-emerald-600 dark:text-emerald-300" }
       : nextFree
       ? { label: t("machineNextFreeAt").replace("{time}", formatTimeLabel(nextFree.start)), valueClass: "text-orange-600 dark:text-orange-300" }
       : null;
@@ -1069,16 +1089,38 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
       return start >= selectedDayStart && start < selectedDayEnd;
     });
     const status = getMachineUiStatus(machine);
-    const selectedProgramForRecommendation =
-      machine.programs.find(program => program.name === selectedProgram) || null;
+    const isSimpleMode = Boolean(current?.simple_mode);
+    const selectedProgramForRecommendation = isSimpleMode
+      ? (simpleDuration && simpleDuration > 0 ? { name: "", duration_minutes: simpleDuration } : null)
+      : (machine.programs.find(program => program.name === selectedProgram) || null);
     const requiredBookingMinutes = selectedProgramForRecommendation?.duration_minutes || 0;
     const selectedEntry = machineIndex[String(machine.id)];
     const selectedZone = current.zones.find(zone => String(zone.id) === selectedEntry?.zoneId);
     const allSlots = getSlotsForMachine(machine);
     const getCoveredSlotsForSlot = (slot: BookingSlot) =>
       getCoveredSlotsForProgram(allSlots, slot, requiredBookingMinutes);
-    const isSlotSelectable = (slot: BookingSlot) => getCoveredSlotsForSlot(slot) !== null;
-    const selectableSlots = allSlots.filter(isSlotSelectable);
+    // In simple mode with no duration: all free slots are selectable.
+    // Otherwise: only slots that start minimum-waste covering sequences.
+    const selectableSlots = (() => {
+      if (isSimpleMode && !requiredBookingMinutes) {
+        return allSlots.filter(s => s.state === "free");
+      }
+      const candidates = allSlots
+        .map(slot => { const covered = getCoveredSlotsForSlot(slot); return covered ? { slot, total: covered.reduce((s, c) => s + c.duration, 0) } : null; })
+        .filter((x): x is { slot: BookingSlot; total: number } => x !== null);
+      if (!candidates.length) return [] as BookingSlot[];
+      const minTotal = Math.min(...candidates.map(x => x.total));
+      return candidates.filter(x => x.total === minTotal).map(x => x.slot);
+    })();
+    const isSlotSelectable = (slot: BookingSlot) =>
+      selectableSlots.some(s => s.start.getTime() === slot.start.getTime());
+    // Все слоты, входящие хотя бы в одну допустимую последовательность (включая "вторые" слоты)
+    const allCompatibleSlotStarts = new Set<number>();
+    if (selectedProgramForRecommendation) {
+      selectableSlots.forEach(s => {
+        getCoveredSlotsForSlot(s)?.forEach(cs => allCompatibleSlotStarts.add(cs.start.getTime()));
+      });
+    }
     const coveredSlotStarts = new Set<number>();
     const selectedAvailableSlot =
       startCandidate &&
@@ -1089,7 +1131,10 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     const selectedSlotInfo = selectedAvailableSlot
       ? allSlots.find(slot => slot.start.getTime() === selectedAvailableSlot.getTime()) || null
       : null;
-    const selectedCoveredSlots = selectedSlotInfo ? getCoveredSlotsForSlot(selectedSlotInfo) : null;
+    // In simple mode with no duration: book the single selected slot; else use covering sequences
+    const selectedCoveredSlots = selectedSlotInfo
+      ? (isSimpleMode && !requiredBookingMinutes ? [selectedSlotInfo] : getCoveredSlotsForSlot(selectedSlotInfo))
+      : null;
     const selectedAvailableSlotEnd = selectedCoveredSlots?.[selectedCoveredSlots.length - 1]?.end || null;
     if (selectedCoveredSlots) {
       selectedCoveredSlots.forEach(slot => coveredSlotStarts.add(slot.start.getTime()));
@@ -1118,7 +1163,7 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
       window.setTimeout(() => setProgramPromptActive(false), 1600);
     };
     const openBookingConfirmation = () => {
-      if (!selectedProgramForRecommendation) {
+      if (!isSimpleMode && !selectedProgramForRecommendation) {
         promptForProgramSelection();
         return;
       }
@@ -1171,13 +1216,18 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
                     label: t("dateLabel"),
                     value: `${currentDateLabel}, ${formatDateLabel(bookingConfirmation.start, lang)}`
                   },
-                  {
+                  ...(isSimpleMode ? [] : [{
                     icon: Timer,
                     label: t("bookingSelectProgram"),
                     value: bookingConfirmation.program
                       ? `${bookingConfirmation.program.name} · ${formatDurationLabel(bookingConfirmation.program.duration_minutes)}`
                       : t("programNotSelected")
-                  }
+                  }]),
+                  ...(isSimpleMode && bookingConfirmation.program ? [{
+                    icon: Timer,
+                    label: t("simpleModeUserDurationLabel"),
+                    value: formatDurationLabel(bookingConfirmation.program.duration_minutes)
+                  }] : [])
                 ].map(({ icon: Icon, label, value }) => (
                   <div
                     key={label}
@@ -1209,11 +1259,13 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
                   <span>{t("important")}</span>
                 </div>
                 <p className="mt-3 text-sm font-medium leading-6">
-                  {t("confirmationImportantText")}
+                  {isSimpleMode ? t("simpleModeConfirmImportantText") : t("confirmationImportantText")}
                 </p>
-                <p className="mt-3 text-sm font-medium leading-6">
-                  {t("confirmationProgramText")}
-                </p>
+                {!isSimpleMode && (
+                  <p className="mt-3 text-sm font-medium leading-6">
+                    {t("confirmationProgramText")}
+                  </p>
+                )}
               </div>
 
               {error && <div className="mt-4 text-sm font-semibold text-red-600 dark:text-red-400">{error}</div>}
@@ -1309,44 +1361,84 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
                 {t("canBookSlots")}
               </p>
 
-              <div
-                ref={programSelectorRef}
-                className={`mt-6 rounded-lg border bg-slate-50 p-4 transition dark:bg-gray-950/60 ${
-                  programPromptActive
-                    ? "border-blue-500 shadow-[0_0_0_3px_rgba(37,99,235,0.16)] dark:border-blue-500"
-                    : "border-slate-100 dark:border-gray-800"
-                }`}
-              >
-                <div className="text-sm font-bold text-slate-950 dark:text-white">{t("bookingSelectProgram")}</div>
-                <div className="mt-3">
-                  <select
-                    value={selectedProgram}
-                    onChange={event => {
-                      setSelectedProgram(event.target.value);
-                      setStartCandidate(null);
-                      setPendingBooking(null);
-                      setError(null);
-                      setInfo(null);
-                    }}
-                    className="h-12 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white"
-                  >
-                    <option value="">{t("bookingSelectProgramPlaceholder")}</option>
-                    {machine.programs.map(program => (
-                      <option key={program.name} value={program.name}>
-                        {program.name} · {formatDurationLabel(program.duration_minutes)}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="mt-2 text-xs font-semibold text-slate-500 dark:text-gray-400">
-                    {selectedProgramForRecommendation
-                      ? `${selectedProgramForRecommendation.name}: ${formatDurationLabel(selectedProgramForRecommendation.duration_minutes)}`
-                      : t("bookingProgramFirst")}
+              {isSimpleMode ? (
+                /* Simple mode: optional duration input + hint */
+                <div
+                  ref={programSelectorRef}
+                  className="mt-6 rounded-lg border border-slate-100 bg-slate-50 p-4 dark:border-gray-800 dark:bg-gray-950/60"
+                >
+                  <div className="text-sm font-bold text-slate-950 dark:text-white">{t("simpleModeUserDurationLabel")}</div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={480}
+                      value={simpleDuration ?? ""}
+                      placeholder={t("simpleModeUserDurationPlaceholder")}
+                      onChange={e => {
+                        const val = e.target.value === "" ? null : Math.max(1, parseInt(e.target.value, 10));
+                        setSimpleDuration(isNaN(val as number) ? null : val);
+                        setStartCandidate(null);
+                        setPendingBooking(null);
+                        setError(null);
+                        setInfo(null);
+                      }}
+                      className="h-12 w-36 rounded-md border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white"
+                    />
+                    <span className="text-sm text-slate-500 dark:text-gray-400">{t("simpleModeUserDurationMinutes")}</span>
+                  </div>
+                  {recommendationText && selectedProgramForRecommendation && (
+                    <div className="mt-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200">
+                      {recommendationText}
+                    </div>
+                  )}
+                  <div className="mt-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200">
+                    {t("simpleModeUserHint")}
                   </div>
                 </div>
-                <div className="mt-3 text-sm font-semibold text-slate-600 dark:text-gray-300">
-                  {recommendationText}
+              ) : (
+                /* Normal mode: program selector */
+                <div
+                  ref={programSelectorRef}
+                  className={`mt-6 rounded-lg border bg-slate-50 p-4 transition dark:bg-gray-950/60 ${
+                    programPromptActive
+                      ? "border-blue-500 shadow-[0_0_0_3px_rgba(37,99,235,0.16)] dark:border-blue-500"
+                      : "border-slate-100 dark:border-gray-800"
+                  }`}
+                >
+                  <div className="text-sm font-bold text-slate-950 dark:text-white">{t("bookingSelectProgram")}</div>
+                  <div className="mt-3">
+                    <select
+                      value={selectedProgram}
+                      onChange={event => {
+                        setSelectedProgram(event.target.value);
+                        setStartCandidate(null);
+                        setPendingBooking(null);
+                        setError(null);
+                        setInfo(null);
+                      }}
+                      className="h-12 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white"
+                    >
+                      <option value="">{t("bookingSelectProgramPlaceholder")}</option>
+                      {machine.programs.map(program => (
+                        <option key={program.name} value={program.name}>
+                          {program.name} · {formatDurationLabel(program.duration_minutes)}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-2 text-xs font-semibold text-slate-500 dark:text-gray-400">
+                      {selectedProgramForRecommendation
+                        ? `${selectedProgramForRecommendation.name}: ${formatDurationLabel(selectedProgramForRecommendation.duration_minutes)}`
+                        : t("bookingProgramFirst")}
+                    </div>
+                  </div>
+                  {recommendationText && selectedProgramForRecommendation && (
+                    <div className="mt-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200">
+                      {recommendationText}
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
 
               <div className="mt-7">
                 <div className="text-lg font-bold text-slate-950 dark:text-white">{t("availableSlots")}</div>
@@ -1356,12 +1448,18 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
                   </div>
                 ) : (
                   <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {allSlots.map(slot => {
+                    {(() => {
+                      const nearestSlotStart = selectedProgramForRecommendation
+                        ? selectableSlots[0]?.start ?? null
+                        : allSlots.find(s => s.state === "free")?.start ?? null;
+                      return allSlots.map(slot => {
                       const active = selectedAvailableSlot?.getTime() === slot.start.getTime();
                       const covered = coveredSlotStarts.has(slot.start.getTime());
                       const selectable = isSlotSelectable(slot);
-                      const needsProgram = !selectedProgramForRecommendation && slot.state === "free";
+                      const nearest = nearestSlotStart?.getTime() === slot.start.getTime();
+                      const needsProgram = !isSimpleMode && !selectedProgramForRecommendation && slot.state === "free";
                       const disabled = selectedProgramForRecommendation ? !selectable : slot.state !== "free";
+                      const incompatible = selectedProgramForRecommendation && slot.state === "free" && !allCompatibleSlotStarts.has(slot.start.getTime());
                       const stateClass =
                         slot.state === "past"
                           ? "border-slate-200 bg-slate-100 text-slate-400 dark:border-gray-800 dark:bg-gray-800 dark:text-gray-500"
@@ -1373,6 +1471,10 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
                           ? "border-blue-600 bg-blue-50 text-blue-700 shadow-[0_0_0_1px_rgba(37,99,235,0.14)] dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-200"
                           : active
                           ? "border-blue-600 bg-blue-50 text-blue-700 shadow-[0_0_0_1px_rgba(37,99,235,0.14)] dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-200"
+                          : incompatible
+                          ? "border-slate-200 bg-slate-50 text-slate-400 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-500"
+                          : nearest
+                          ? "border-emerald-500 bg-emerald-50 text-emerald-700 shadow-[0_0_0_1px_rgba(16,185,129,0.25)] hover:border-emerald-600 hover:bg-emerald-100 dark:border-emerald-500 dark:bg-emerald-950/30 dark:text-emerald-200"
                           : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200";
                       return (
                         <button
@@ -1403,7 +1505,8 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
                           </span>
                         </button>
                       );
-                    })}
+                    });
+                    })()}
                   </div>
                 )}
               </div>
@@ -1422,8 +1525,8 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
               <button
                 type="button"
                 onClick={openBookingConfirmation}
-                disabled={loading || bookingLimitReached || status === "broken" || status === "inactive" || (!!selectedProgramForRecommendation && (!selectedAvailableSlot || !selectedCoveredSlots))}
-                aria-disabled={!selectedProgramForRecommendation || !selectedAvailableSlot || !selectedCoveredSlots || loading || bookingLimitReached || status === "broken" || status === "inactive"}
+                disabled={loading || bookingLimitReached || status === "broken" || status === "inactive" || (!isSimpleMode && !selectedProgramForRecommendation) || !selectedAvailableSlot || !selectedCoveredSlots}
+                aria-disabled={(!isSimpleMode && !selectedProgramForRecommendation) || !selectedAvailableSlot || !selectedCoveredSlots || loading || bookingLimitReached || status === "broken" || status === "inactive"}
                 className="mt-7 h-14 w-full rounded-md bg-blue-600 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
               >
                 {bookingLimitReached ? t("bookingLimitReachedShort") : t("bookSelectedSlot")}

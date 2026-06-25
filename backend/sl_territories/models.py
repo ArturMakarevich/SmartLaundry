@@ -24,6 +24,8 @@ class Territory(models.Model):
         on_delete=models.SET_NULL,
         related_name="territories_created",
     )
+    simple_mode = models.BooleanField(default=False)
+    simple_slot_durations = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:
