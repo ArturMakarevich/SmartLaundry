@@ -732,10 +732,6 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     const slots = getSlotsForMachine(machine);
     const selectedSlot = slots.find(slot => slot.start.getTime() === start.getTime()) || null;
     const coveredSlots = selectedSlot ? getCoveredSlotsForProgram(slots, selectedSlot, program.duration_minutes) : null;
-    const existing = (machine.bookings || []).find(
-      b => b.status === "active" && b.user?.id === currentUserId && isSameDay(new Date(b.start_time), start)
-    );
-    if (existing) return t("bookingErrorAlreadyBooked");
     if (bookingLimitReached) {
       return t("bookingLimitReachedLong");
     }
@@ -968,21 +964,16 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     const handleCardClick = () => {
       if (asHeader) return;
       if (unavailable) return;
-      if (status === "user_booking") { void handleSelectMachine(machine.id); return; }
-      if (!bookingLimitReached) void handleSelectMachine(machine.id);
+      void handleSelectMachine(machine.id);
     };
 
-    const ctaLabel = bookingLimitReached && status !== "user_booking"
-      ? t("bookingLimitReachedShort")
-      : unavailable
+    const ctaLabel = unavailable
       ? t("actionUnavailable")
       : status === "occupied" && nextFree
       ? t("actionBookFor").replace("{time}", formatTimeLabel(nextFree.start))
       : t("actionBookNow");
 
     const ctaClass = unavailable
-      ? "cursor-not-allowed bg-slate-100 text-slate-500 dark:bg-gray-800 dark:text-gray-500"
-      : bookingLimitReached && status !== "user_booking"
       ? "cursor-not-allowed bg-slate-100 text-slate-500 dark:bg-gray-800 dark:text-gray-500"
       : status === "occupied"
       ? "border border-blue-600 bg-white text-blue-700 hover:bg-blue-50 dark:border-blue-500 dark:bg-gray-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
@@ -999,8 +990,6 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
             ? "cursor-pointer border-emerald-400 animate-pulse shadow-[0_0_0_2px_rgba(16,185,129,0.4),0_0_24px_rgba(16,185,129,0.6),0_0_48px_rgba(16,185,129,0.3)] dark:border-emerald-400 dark:shadow-[0_0_0_2px_rgba(52,211,153,0.5),0_0_28px_rgba(52,211,153,0.7),0_0_56px_rgba(16,185,129,0.4)]"
             : unavailable
             ? "opacity-70"
-            : bookingLimitReached && status !== "user_booking"
-            ? "cursor-not-allowed opacity-80"
             : "cursor-pointer transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md dark:hover:border-blue-800"
         }`}
         onClick={handleCardClick}
@@ -1066,7 +1055,7 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
           {!asHeader && status !== "user_booking" && (
             <button
               onClick={e => { e.stopPropagation(); handleCardClick(); }}
-              disabled={unavailable || bookingLimitReached}
+              disabled={unavailable}
               className={`mt-2 h-10 w-full rounded-md text-sm font-semibold transition ${ctaClass}`}
             >
               {ctaLabel}
