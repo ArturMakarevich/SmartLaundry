@@ -285,7 +285,7 @@ class BookingSerializer(serializers.ModelSerializer):
 
 
 class UserNotificationSerializer(serializers.ModelSerializer):
-    territory_id = serializers.IntegerField(source="territory_id", read_only=True)
+    territory_id = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = UserNotification
