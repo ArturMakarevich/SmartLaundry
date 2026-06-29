@@ -889,7 +889,7 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
 
   const getMachineStatusMeta = (status: MachineUiStatus): { drum: string; badge: string; label: string } => {
     switch (status) {
-      case "free_now":    return { drum: "#22c55e", badge: "bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-800", label: t("machineCardFreeNow") };
+      case "free_now":    return { drum: "#22c55e", badge: "bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-800", label: t("machineFreeNowAvailable") };
       case "occupied":   return { drum: "#f59e0b", badge: "bg-orange-50 text-orange-700 ring-orange-100 dark:bg-orange-950/40 dark:text-orange-200 dark:ring-orange-800", label: t("machineCardOccupied") };
       case "broken":     return { drum: "#ef4444", badge: "bg-red-50 text-red-700 ring-red-100 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-800", label: t("machineCardBroken") };
       case "inactive":   return { drum: "#9ca3af", badge: "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-700", label: t("machineCardInactive") };
@@ -945,12 +945,9 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
       unavailable || status === "user_booking"
         ? []
         : status === "free_now"
-        ? [
-            { label: t("machineFreeNowAvailable"), valueClass: "text-emerald-600 dark:text-emerald-300" },
-            ...(nextFree
-              ? [{ label: t("machineNextFreeAt").replace("{time}", formatTimeLabel(nextFree.start)), valueClass: "text-slate-500 dark:text-gray-400" }]
-              : []),
-          ]
+        ? nextFree
+          ? [{ label: t("machineNextFreeAt").replace("{time}", formatTimeLabel(nextFree.start)), valueClass: "text-slate-500 dark:text-gray-400" }]
+          : []
         : nextFree
         ? [{ label: t("machineNextFreeAt").replace("{time}", formatTimeLabel(nextFree.start)), valueClass: "text-orange-600 dark:text-orange-300" }]
         : [];
