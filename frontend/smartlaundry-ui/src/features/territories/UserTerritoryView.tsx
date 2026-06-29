@@ -902,18 +902,6 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
     return slot ? { start: slot.start, end: slot.end } : null;
   };
 
-  // Конец непрерывной незабронированной полосы от текущего момента.
-  // Если машина сейчас в слоте "current" (последний слот дня), возвращает его конец.
-  const getFreeUntilTime = (machine: Machine): Date | null => {
-    let freeEnd: Date | null = null;
-    for (const s of getSlotsForMachine(machine)) {
-      if (s.state === "past") continue;
-      if (s.state === "booked") break;
-      freeEnd = s.end; // current или free
-    }
-    return freeEnd;
-  };
-
   const getZoneDisplayName = (zone?: Zone) => {
     if (!zone) return t("territoryZoneLabel");
     const baseName = (zone.name || `${t("territoryZoneLabel")} ${zone.id}`).trim();
@@ -953,13 +941,19 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
       ? (machine.bookings || []).find(b => b.status === "active" && b.user?.id === currentUserId && isSameDay(new Date(b.start_time), selectedDayStart))
       : null;
 
-    const availabilityInfo = unavailable || status === "user_booking"
-      ? null
-      : status === "free_now"
-      ? { label: t("machineCurrentSlotEnd").replace("{time}", formatTimeLabel(getFreeUntilTime(machine) ?? nextFree?.end ?? new Date())), valueClass: "text-emerald-600 dark:text-emerald-300" }
-      : nextFree
-      ? { label: t("machineNextFreeAt").replace("{time}", formatTimeLabel(nextFree.start)), valueClass: "text-orange-600 dark:text-orange-300" }
-      : null;
+    const availabilityLines: { label: string; valueClass: string }[] =
+      unavailable || status === "user_booking"
+        ? []
+        : status === "free_now"
+        ? [
+            { label: t("machineFreeNowAvailable"), valueClass: "text-emerald-600 dark:text-emerald-300" },
+            ...(nextFree
+              ? [{ label: t("machineNextFreeAt").replace("{time}", formatTimeLabel(nextFree.start)), valueClass: "text-slate-500 dark:text-gray-400" }]
+              : []),
+          ]
+        : nextFree
+        ? [{ label: t("machineNextFreeAt").replace("{time}", formatTimeLabel(nextFree.start)), valueClass: "text-orange-600 dark:text-orange-300" }]
+        : [];
 
     const handleCardClick = () => {
       if (asHeader) return;
@@ -1015,14 +1009,14 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
                   </span>
                 </div>
               )}
-              {availabilityInfo && (
-                <div className="mt-3 flex items-center gap-1.5 text-xs">
+              {availabilityLines.map((line, i) => (
+                <div key={i} className={`${i === 0 ? "mt-3" : "mt-1"} flex items-center gap-1.5 text-xs`}>
                   <Clock3 size={13} className="shrink-0 text-slate-400 dark:text-gray-500" />
-                  <span className={`font-semibold ${availabilityInfo.valueClass}`}>
-                    {availabilityInfo.label}
+                  <span className={`font-semibold ${line.valueClass}`}>
+                    {line.label}
                   </span>
                 </div>
-              )}
+              ))}
               {unavailable && (
                 <div className="mt-3 flex items-center gap-1.5 text-xs">
                   <Wrench size={13} className="shrink-0 text-slate-400 dark:text-gray-500" />
@@ -1441,24 +1435,50 @@ export function UserTerritoryView({ territoryId, onSelectTerritory, onTerritorie
                       const nearestSlotStart = selectedProgramForRecommendation
                         ? selectableSlots[0]?.start ?? null
                         : allSlots.find(s => s.state === "free")?.start ?? null;
+                      // Selected covering group of 2+ slots is rendered as ONE
+                      // full-width outlined block so it reads as a single unit
+                      // regardless of how the grid wraps.
+                      const groupSlots = selectedCoveredSlots && selectedCoveredSlots.length > 1 ? selectedCoveredSlots : null;
+                      const groupStartSet = new Set<number>(groupSlots ? groupSlots.map(s => s.start.getTime()) : []);
+                      const groupFirst = groupSlots ? groupSlots[0].start.getTime() : null;
+                      const groupTotalMinutes = groupSlots ? groupSlots.reduce((sum, c) => sum + c.duration, 0) : 0;
                       return allSlots.map(slot => {
-                      const active = selectedAvailableSlot?.getTime() === slot.start.getTime();
-                      const covered = coveredSlotStarts.has(slot.start.getTime());
+                      const slotKey = slot.start.getTime();
+                      if (groupSlots && groupStartSet.has(slotKey)) {
+                        // Render the whole group once (at its first slot); skip the rest.
+                        if (slotKey !== groupFirst) return null;
+                        return (
+                          <div
+                            key={`group-${groupFirst}`}
+                            className="col-span-full overflow-hidden rounded-md border-2 border-blue-600 bg-blue-50 shadow-[0_0_0_1px_rgba(37,99,235,0.14)] dark:border-blue-500 dark:bg-blue-950/30"
+                          >
+                            <div className="flex divide-x divide-blue-200 dark:divide-blue-800/70">
+                              {groupSlots.map(sub => (
+                                <div key={sub.start.toISOString()} className="flex-1 px-2 py-3 text-center">
+                                  <span className="block text-base font-bold text-blue-700 dark:text-blue-200">{formatTimeLabel(sub.start)}-{formatTimeLabel(sub.end)}</span>
+                                  <span className="block text-xs font-semibold text-blue-600 dark:text-blue-300">{formatDurationLabel(sub.duration)}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="border-t border-blue-200 bg-blue-100/60 px-3 py-1.5 text-center text-xs font-bold text-blue-700 dark:border-blue-800/70 dark:bg-blue-900/30 dark:text-blue-200">
+                              {formatTimeLabel(groupSlots[0].start)}–{formatTimeLabel(groupSlots[groupSlots.length - 1].end)} · {formatDurationLabel(groupTotalMinutes)}
+                            </div>
+                          </div>
+                        );
+                      }
+                      const active = selectedAvailableSlot?.getTime() === slotKey;
+                      const covered = coveredSlotStarts.has(slotKey);
                       const selectable = isSlotSelectable(slot);
-                      const nearest = nearestSlotStart?.getTime() === slot.start.getTime();
+                      const nearest = nearestSlotStart?.getTime() === slotKey;
                       const needsProgram = !isSimpleMode && !selectedProgramForRecommendation && slot.state === "free";
                       const disabled = selectedProgramForRecommendation ? !selectable : slot.state !== "free";
-                      const incompatible = selectedProgramForRecommendation && slot.state === "free" && !allCompatibleSlotStarts.has(slot.start.getTime());
+                      const incompatible = selectedProgramForRecommendation && slot.state === "free" && !allCompatibleSlotStarts.has(slotKey);
                       const stateClass =
-                        slot.state === "past"
+                        slot.state === "past" || slot.state === "current"
                           ? "border-slate-200 bg-slate-100 text-slate-400 dark:border-gray-800 dark:bg-gray-800 dark:text-gray-500"
-                          : slot.state === "current"
-                          ? "border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-200"
                           : slot.state === "booked"
                           ? "border-slate-200 bg-slate-50 text-slate-400 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-500"
-                          : covered
-                          ? "border-blue-600 bg-blue-50 text-blue-700 shadow-[0_0_0_1px_rgba(37,99,235,0.14)] dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-200"
-                          : active
+                          : covered || active
                           ? "border-blue-600 bg-blue-50 text-blue-700 shadow-[0_0_0_1px_rgba(37,99,235,0.14)] dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-200"
                           : incompatible
                           ? "border-slate-200 bg-slate-50 text-slate-400 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-500"

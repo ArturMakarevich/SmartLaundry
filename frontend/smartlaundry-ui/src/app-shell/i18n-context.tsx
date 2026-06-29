@@ -188,6 +188,7 @@ export type KnownTranslationKey =
   | "machineCardUserBooking"
   | "machineNextFreeAt"
   | "machineCurrentSlotEnd"
+  | "machineFreeNowAvailable"
   | "actionManageBooking"
   | "navTerritories"
   | "navGuide"
@@ -772,6 +773,7 @@ const dictionaries: Record<LanguageCode, Dictionary> = {
     machineCardUserBooking: "Your booking",
     machineNextFreeAt: "Free from: {time}",
     machineCurrentSlotEnd: "Free until: {time}",
+    machineFreeNowAvailable: "Available now",
     actionManageBooking: "Manage",
     navTerritories: "Territories",
     navGuide: "Guide",
@@ -1376,6 +1378,7 @@ const dictionaries: Record<LanguageCode, Dictionary> = {
     machineCardUserBooking: "Twoja rezerwacja",
     machineNextFreeAt: "Wolna od: {time}",
     machineCurrentSlotEnd: "Wolna do: {time}",
+    machineFreeNowAvailable: "Dostępna teraz",
     actionManageBooking: "Zarządzaj",
     navTerritories: "Terytoria",
     navGuide: "Instrukcja",

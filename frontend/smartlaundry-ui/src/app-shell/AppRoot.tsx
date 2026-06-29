@@ -196,7 +196,10 @@ export function AppRoot() {
   const [editingTerritory, setEditingTerritory] = useState<TerritoryFormValue | null>(null);
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname);
   const [clockNow, setClockNow] = useState(() => new Date());
-  const [userTerritoriesCount, setUserTerritoriesCount] = useState<number | null>(null);
+  const [userTerritoriesCount, setUserTerritoriesCount] = useState<number | null>(() => {
+    const cached = window.localStorage.getItem("sl_territory_count");
+    return cached != null && cached !== "" ? Number(cached) : null;
+  });
   const [territoriesPageList, setTerritoriesPageList] = useState<Array<{ territory: { id: number; name: string; code: string }; added_at: string }>>([]);
   const [territoriesPageLoading, setTerritoriesPageLoading] = useState(false);
   const [joinCode, setJoinCode] = useState("");
@@ -239,6 +242,8 @@ export function AppRoot() {
       window.localStorage.removeItem("sl_user_id");
       window.localStorage.removeItem("sl_user_email");
       window.localStorage.removeItem("sl_user_role");
+      window.localStorage.removeItem("sl_territory_count");
+      setUserTerritoriesCount(null);
       setAuthChecked(true);
       return;
     }
@@ -374,6 +379,8 @@ export function AppRoot() {
     setAdminUsers([]);
     setAdminTerritories([]);
     setTerritoriesPageList([]);
+    setUserTerritoriesCount(null);
+    window.localStorage.removeItem("sl_territory_count");
     window.localStorage.removeItem("sl_access");
     window.localStorage.removeItem("sl_refresh");
     window.localStorage.removeItem("sl_user_id");
@@ -706,6 +713,25 @@ const generateAdminInviteCode = async (territoryId: string) => {
     }
   }, [isAdminRole, isSuperAdmin, currentPath, isAdminUsersPage, isAdminTerritoriesPage, isAdminTerritoryCreatePage]);
 
+  const applyTerritoriesCount = (count: number) => {
+    setUserTerritoriesCount(count);
+    window.localStorage.setItem("sl_territory_count", String(count));
+  };
+
+  // Eager-load the territory count right after login so the nav tabs don't flash
+  // the "no territory" state while UserTerritoryView finishes its heavier load
+  // (it reports the count only after fetching every territory's bookings).
+  useEffect(() => {
+    if (!currentUser || isAdminRole) return;
+    apiClient
+      .get("territories/mine/")
+      .then(res => {
+        const items = Array.isArray(res.data) ? res.data : [];
+        applyTerritoriesCount(items.length);
+      })
+      .catch(() => {});
+  }, [currentUser?.id, isAdminRole]);
+
   useEffect(() => {
     if (!isTerritoriesPage || !currentUser || isAdminRole) return;
     setTerritoriesPageLoading(true);
@@ -714,7 +740,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
       .then(res => {
         const items = Array.isArray(res.data) ? res.data : [];
         setTerritoriesPageList(items);
-        setUserTerritoriesCount(items.length);
+        applyTerritoriesCount(items.length);
       })
       .finally(() => setTerritoriesPageLoading(false));
   }, [isTerritoriesPage, currentUser?.id]);
@@ -837,7 +863,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
       const joinedId = Number(joinedTerritory?.id) || null;
       const successMessage = t("joinTerritorySuccessNamed").replace("{name}", joinedName);
       setTerritoriesPageList(items);
-      setUserTerritoriesCount(items.length);
+      applyTerritoriesCount(items.length);
       if (joinedId) {
         setCurrentTerritoryId(joinedId);
       }
@@ -860,7 +886,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
       const res = await apiClient.get("territories/mine/");
       const items = Array.isArray(res.data) ? res.data : [];
       setTerritoriesPageList(items);
-      setUserTerritoriesCount(items.length);
+      applyTerritoriesCount(items.length);
       if (currentTerritoryId === territoryId) setCurrentTerritoryId(null);
       setLeaveTerritoryConfirm(null);
     } catch {
@@ -2289,7 +2315,7 @@ const generateAdminInviteCode = async (territoryId: string) => {
             <UserTerritoryView
               territoryId={currentTerritoryId}
               onSelectTerritory={setCurrentTerritoryId}
-              onTerritoriesLoaded={setUserTerritoriesCount}
+              onTerritoriesLoaded={applyTerritoriesCount}
             />
           )}
         </main>
